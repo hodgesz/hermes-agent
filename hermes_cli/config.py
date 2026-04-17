@@ -950,6 +950,7 @@ def _ensure_hermes_home_managed(home: Path):
 # Config loading/saving
 # =============================================================================
 
+<<<<<<< HEAD
 from hermes_cli.config_defaults import DEFAULT_CONFIG, OPTIONAL_ENV_VARS  # noqa: F401
 
 # =============================================================================
@@ -3408,6 +3409,12 @@ TERMINAL_CONFIG_ENV_MAP = {
     "docker_run_as_host_user": "TERMINAL_DOCKER_RUN_AS_HOST_USER",
     "docker_persist_across_processes": "TERMINAL_DOCKER_PERSIST_ACROSS_PROCESSES",
     "docker_orphan_reaper": "TERMINAL_DOCKER_ORPHAN_REAPER",
+    # fork: docker hardened-security profile keys (NemoClaw migration).
+    "docker_security_profile": "TERMINAL_DOCKER_SECURITY_PROFILE",
+    "docker_read_only_root": "TERMINAL_DOCKER_READ_ONLY_ROOT",
+    "docker_user": "TERMINAL_DOCKER_USER",
+    "docker_seccomp_profile": "TERMINAL_DOCKER_SECCOMP_PROFILE",
+    "docker_writable_paths": "TERMINAL_DOCKER_WRITABLE_PATHS",
     "sandbox_dir": "TERMINAL_SANDBOX_DIR",
     "persistent_shell": "TERMINAL_PERSISTENT_SHELL",
 }
