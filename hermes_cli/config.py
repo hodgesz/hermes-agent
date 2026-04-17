@@ -410,6 +410,25 @@ DEFAULT_CONFIG = {
         # Enabled by default for non-local backends (SSH); local is always opt-in
         # via TERMINAL_LOCAL_PERSISTENT env var.
         "persistent_shell": True,
+        # Docker security profile — "standard" applies the baseline hardening
+        # (cap-drop ALL, no-new-privileges, tmpfs limits). "hardened" additionally
+        # mounts the root filesystem read-only, drops to a non-root user when
+        # set, and applies a seccomp profile when provided. Writable paths must
+        # be listed explicitly via docker_writable_paths.
+        "docker_security_profile": "standard",
+        # Mount the container rootfs read-only when docker_security_profile is
+        # "hardened". Forced writable paths are supplied via docker_writable_paths.
+        "docker_read_only_root": False,
+        # Run container processes as this user (e.g. "1000:1000" or "nobody").
+        # Empty = use the image default user. Applied when profile is "hardened".
+        "docker_user": "",
+        # Path to a Docker seccomp JSON profile. Empty = Docker default.
+        # Used only when docker_security_profile is "hardened".
+        "docker_seccomp_profile": "",
+        # Paths inside the container to mount as writable tmpfs when using the
+        # hardened profile with read-only rootfs. Defaults cover the common
+        # package-manager / agent scratch paths.
+        "docker_writable_paths": ["/workspace", "/tmp", "/var/tmp"],
     },
     
     "browser": {
@@ -3494,6 +3513,10 @@ def set_config_value(key: str, value: str):
         "terminal.container_memory": "TERMINAL_CONTAINER_MEMORY",
         "terminal.container_disk": "TERMINAL_CONTAINER_DISK",
         "terminal.container_persistent": "TERMINAL_CONTAINER_PERSISTENT",
+        "terminal.docker_security_profile": "TERMINAL_DOCKER_SECURITY_PROFILE",
+        "terminal.docker_read_only_root": "TERMINAL_DOCKER_READ_ONLY_ROOT",
+        "terminal.docker_user": "TERMINAL_DOCKER_USER",
+        "terminal.docker_seccomp_profile": "TERMINAL_DOCKER_SECCOMP_PROFILE",
     }
     if key in _config_to_env_sync:
         save_env_value(_config_to_env_sync[key], str(value))

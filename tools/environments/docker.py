@@ -162,6 +162,20 @@ _SECURITY_ARGS = [
     "--tmpfs", "/run:rw,noexec,nosuid,size=64m",
 ]
 
+# Hardened profile: standard flags plus a read-only root filesystem. Writable
+# paths must be supplied explicitly via tmpfs/bind mounts (see _writable_args
+# and the docker_writable_paths config). Combine with docker_user and
+# docker_seccomp_profile for defence-in-depth equivalent to NemoClaw's
+# Landlock/seccomp/filesystem isolation.
+_HARDENED_SECURITY_ARGS = _SECURITY_ARGS + [
+    "--read-only",
+]
+
+# Writable-path mounts that the existing writable_args block already creates,
+# so docker_writable_paths entries overlapping these don't generate duplicate
+# --tmpfs flags (which Docker rejects).
+_DEFAULT_WRITABLE_MOUNTS = {"/tmp", "/var/tmp", "/run", "/workspace", "/home", "/root"}
+
 
 _storage_opt_ok: Optional[bool] = None  # cached result across instances
 
@@ -260,6 +274,11 @@ class DockerEnvironment(BaseEnvironment):
         network: bool = True,
         host_cwd: str = None,
         auto_mount_cwd: bool = False,
+        security_profile: str = "standard",
+        read_only_root: bool = False,
+        user: str = "",
+        seccomp_profile: str = "",
+        writable_paths: list[str] | None = None,
     ):
         if cwd == "~":
             cwd = "/root"
@@ -415,8 +434,61 @@ class DockerEnvironment(BaseEnvironment):
         for key in sorted(self._env):
             env_args.extend(["-e", f"{key}={self._env[key]}"])
 
+        # Security profile: "hardened" mounts rootfs read-only and can pair with
+        # a non-root user and seccomp profile for defence-in-depth.
+        profile = (security_profile or "standard").strip().lower()
+        if profile not in ("standard", "hardened"):
+            logger.warning(
+                "Unknown docker_security_profile %r; falling back to 'standard'", security_profile
+            )
+            profile = "standard"
+        hardened = profile == "hardened"
+        effective_read_only = hardened or bool(read_only_root)
+        base_security_args = list(_HARDENED_SECURITY_ARGS) if effective_read_only else list(_SECURITY_ARGS)
+
+        profile_args: list[str] = []
+        if hardened and user:
+            profile_args.extend(["--user", user])
+        if hardened and seccomp_profile:
+            if os.path.isfile(seccomp_profile):
+                profile_args.extend(["--security-opt", f"seccomp={seccomp_profile}"])
+            else:
+                logger.warning(
+                    "docker_seccomp_profile %r not found; using Docker default seccomp",
+                    seccomp_profile,
+                )
+
+        # When rootfs is read-only, the caller must declare any additional
+        # writable paths the workload needs (e.g. /var/cache, /app/run) beyond
+        # the defaults that writable_args already covers.
+        extra_writable_args: list[str] = []
+        if effective_read_only and writable_paths:
+            existing_mount_targets = set(_DEFAULT_WRITABLE_MOUNTS)
+            for token in writable_args:
+                if ":" in token and token.startswith("/"):
+                    existing_mount_targets.add(token.split(":", 1)[0])
+            for path in writable_paths:
+                if not isinstance(path, str):
+                    continue
+                path = path.strip()
+                if not path or not path.startswith("/"):
+                    logger.warning("Ignoring docker_writable_paths entry %r (must be absolute)", path)
+                    continue
+                if path in existing_mount_targets:
+                    continue
+                extra_writable_args.extend(["--tmpfs", f"{path}:rw,nosuid,size=256m"])
+                existing_mount_targets.add(path)
+
         logger.info(f"Docker volume_args: {volume_args}")
-        all_run_args = list(_SECURITY_ARGS) + writable_args + resource_args + volume_args + env_args
+        all_run_args = (
+            base_security_args
+            + profile_args
+            + writable_args
+            + extra_writable_args
+            + resource_args
+            + volume_args
+            + env_args
+        )
         logger.info(f"Docker run_args: {all_run_args}")
 
         # Resolve the docker executable once so it works even when

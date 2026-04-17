@@ -45,6 +45,11 @@ def _make_dummy_env(**kwargs):
         host_cwd=kwargs.get("host_cwd"),
         auto_mount_cwd=kwargs.get("auto_mount_cwd", False),
         env=kwargs.get("env"),
+        security_profile=kwargs.get("security_profile", "standard"),
+        read_only_root=kwargs.get("read_only_root", False),
+        user=kwargs.get("user", ""),
+        seccomp_profile=kwargs.get("seccomp_profile", ""),
+        writable_paths=kwargs.get("writable_paths"),
     )
 
 
@@ -382,3 +387,163 @@ def test_normalize_env_dict_rejects_complex_values():
         "BAD_DICT": {"nested": True},
     })
     assert result == {"GOOD": "string"}
+
+
+# ── hardened security profile tests ──────────────────────────────
+
+
+def _run_cmd_from_calls(calls):
+    """Pull the docker run args out of the mocked subprocess call log."""
+    run_calls = [c for c in calls if isinstance(c[0], list) and len(c[0]) >= 2 and c[0][1] == "run"]
+    assert run_calls, "docker run should have been called"
+    return run_calls[0][0]
+
+
+def test_standard_profile_does_not_add_read_only(monkeypatch):
+    """Default (standard) profile must NOT add --read-only to docker run args."""
+    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
+    calls = _mock_subprocess_run(monkeypatch)
+
+    _make_dummy_env()
+
+    run_cmd = _run_cmd_from_calls(calls)
+    assert "--read-only" not in run_cmd
+
+
+def test_hardened_profile_adds_read_only_root(monkeypatch):
+    """Hardened profile must mount rootfs read-only."""
+    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
+    calls = _mock_subprocess_run(monkeypatch)
+
+    _make_dummy_env(security_profile="hardened")
+
+    run_cmd = _run_cmd_from_calls(calls)
+    assert "--read-only" in run_cmd
+
+
+def test_read_only_root_flag_forces_read_only_without_hardened(monkeypatch):
+    """read_only_root=True should force --read-only even without hardened profile."""
+    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
+    calls = _mock_subprocess_run(monkeypatch)
+
+    _make_dummy_env(security_profile="standard", read_only_root=True)
+
+    run_cmd = _run_cmd_from_calls(calls)
+    assert "--read-only" in run_cmd
+
+
+def test_hardened_profile_applies_user(monkeypatch):
+    """Hardened profile should pass --user when docker_user is configured."""
+    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
+    calls = _mock_subprocess_run(monkeypatch)
+
+    _make_dummy_env(security_profile="hardened", user="1000:1000")
+
+    run_cmd = _run_cmd_from_calls(calls)
+    assert "--user" in run_cmd
+    user_index = run_cmd.index("--user")
+    assert run_cmd[user_index + 1] == "1000:1000"
+
+
+def test_standard_profile_ignores_user(monkeypatch):
+    """docker_user should be ignored when profile is standard."""
+    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
+    calls = _mock_subprocess_run(monkeypatch)
+
+    _make_dummy_env(security_profile="standard", user="1000:1000")
+
+    run_cmd = _run_cmd_from_calls(calls)
+    assert "--user" not in run_cmd
+
+
+def test_hardened_profile_applies_seccomp_when_file_exists(monkeypatch, tmp_path):
+    """Hardened profile + existing seccomp file should pass --security-opt seccomp=..."""
+    seccomp_file = tmp_path / "seccomp.json"
+    seccomp_file.write_text('{"defaultAction":"SCMP_ACT_ALLOW"}')
+
+    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
+    calls = _mock_subprocess_run(monkeypatch)
+
+    _make_dummy_env(security_profile="hardened", seccomp_profile=str(seccomp_file))
+
+    run_cmd = _run_cmd_from_calls(calls)
+    run_cmd_str = " ".join(run_cmd)
+    assert f"seccomp={seccomp_file}" in run_cmd_str
+
+
+def test_hardened_profile_warns_and_skips_missing_seccomp(monkeypatch, caplog):
+    """Missing seccomp file should warn and skip --security-opt seccomp, not fail."""
+    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
+    calls = _mock_subprocess_run(monkeypatch)
+
+    with caplog.at_level(logging.WARNING):
+        _make_dummy_env(security_profile="hardened", seccomp_profile="/no/such/file.json")
+
+    run_cmd = _run_cmd_from_calls(calls)
+    run_cmd_str = " ".join(run_cmd)
+    assert "seccomp=/no/such/file.json" not in run_cmd_str
+    assert any("not found" in record.getMessage() for record in caplog.records)
+
+
+def test_hardened_profile_adds_extra_writable_paths(monkeypatch):
+    """Custom writable_paths beyond the defaults should become tmpfs mounts."""
+    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
+    calls = _mock_subprocess_run(monkeypatch)
+
+    _make_dummy_env(
+        security_profile="hardened",
+        writable_paths=["/workspace", "/tmp", "/var/cache/app"],
+    )
+
+    run_cmd = _run_cmd_from_calls(calls)
+    run_cmd_str = " ".join(run_cmd)
+    # /workspace and /tmp are already covered by _SECURITY_ARGS / writable_args —
+    # only /var/cache/app should appear as a new tmpfs mount.
+    assert "/var/cache/app:rw" in run_cmd_str
+    # No duplicate tmpfs for /tmp (already in _SECURITY_ARGS).
+    assert run_cmd_str.count("--tmpfs /tmp:") == 1
+
+
+def test_standard_profile_ignores_writable_paths(monkeypatch):
+    """writable_paths should be a no-op for the standard (read-write rootfs) profile."""
+    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
+    calls = _mock_subprocess_run(monkeypatch)
+
+    _make_dummy_env(
+        security_profile="standard",
+        writable_paths=["/var/cache/app"],
+    )
+
+    run_cmd = _run_cmd_from_calls(calls)
+    run_cmd_str = " ".join(run_cmd)
+    assert "/var/cache/app" not in run_cmd_str
+
+
+def test_unknown_security_profile_falls_back_to_standard(monkeypatch, caplog):
+    """Unknown profile value should warn and behave like the standard profile."""
+    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
+    calls = _mock_subprocess_run(monkeypatch)
+
+    with caplog.at_level(logging.WARNING):
+        _make_dummy_env(security_profile="paranoid")
+
+    run_cmd = _run_cmd_from_calls(calls)
+    assert "--read-only" not in run_cmd
+    assert any("Unknown docker_security_profile" in r.getMessage() for r in caplog.records)
+
+
+def test_writable_paths_rejects_relative_paths(monkeypatch, caplog):
+    """writable_paths entries that aren't absolute should be logged and skipped."""
+    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
+    calls = _mock_subprocess_run(monkeypatch)
+
+    with caplog.at_level(logging.WARNING):
+        _make_dummy_env(
+            security_profile="hardened",
+            writable_paths=["relative/path", "/valid/path"],
+        )
+
+    run_cmd_str = " ".join(_run_cmd_from_calls(calls))
+    assert "relative/path" not in run_cmd_str
+    assert "/valid/path:rw" in run_cmd_str
+    assert any("must be absolute" in r.getMessage() for r in caplog.records)

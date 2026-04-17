@@ -446,6 +446,12 @@ def load_cli_config() -> Dict[str, Any]:
         "docker_volumes": "TERMINAL_DOCKER_VOLUMES",
         "docker_mount_cwd_to_workspace": "TERMINAL_DOCKER_MOUNT_CWD_TO_WORKSPACE",
         "sandbox_dir": "TERMINAL_SANDBOX_DIR",
+        # Docker security hardening
+        "docker_security_profile": "TERMINAL_DOCKER_SECURITY_PROFILE",
+        "docker_read_only_root": "TERMINAL_DOCKER_READ_ONLY_ROOT",
+        "docker_user": "TERMINAL_DOCKER_USER",
+        "docker_seccomp_profile": "TERMINAL_DOCKER_SECCOMP_PROFILE",
+        "docker_writable_paths": "TERMINAL_DOCKER_WRITABLE_PATHS",
         # Persistent shell (non-local backends)
         "persistent_shell": "TERMINAL_PERSISTENT_SHELL",
         # Sudo support (works with all backends)
