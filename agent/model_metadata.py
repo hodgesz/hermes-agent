@@ -28,8 +28,10 @@ _PROVIDER_PREFIXES: frozenset[str] = frozenset({
     "qwen-oauth",
     "xiaomi",
     "arcee",
+    "nvidia",
     "custom", "local",
     # Common aliases
+    "nim", "nvidia-nim", "nemotron",
     "google", "google-gemini", "google-ai-studio",
     "glm", "z-ai", "z.ai", "zhipu", "github", "github-copilot",
     "github-models", "kimi", "moonshot", "kimi-cn", "moonshot-cn", "claude", "deep-seek",
@@ -174,6 +176,13 @@ DEFAULT_CONTEXT_LENGTHS = {
     "mimo-v2-omni": 256000,
     "mimo-v2-flash": 256000,
     "zai-org/GLM-5": 202752,
+    # NVIDIA Nemotron
+    "nemotron-3-super-120b": 131072,
+    "nemotron-3-nano-30b": 131072,
+    "nemotron-3-mini-60b": 131072,
+    "llama-3.3-nemotron-super-49b": 131072,
+    "llama-3.1-nemotron-ultra-253b": 131072,
+    "nemotron": 131072,
 }
 
 _CONTEXT_LENGTH_KEYS = (
@@ -243,6 +252,7 @@ _URL_TO_PROVIDER: Dict[str, str] = {
     "api.xiaomimimo.com": "xiaomi",
     "xiaomimimo.com": "xiaomi",
     "ollama.com": "ollama-cloud",
+    "integrate.api.nvidia.com": "nvidia",
 }
 
 

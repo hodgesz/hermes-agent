@@ -979,6 +979,22 @@ OPTIONAL_ENV_VARS = {
         "password": False,
         "category": "provider",
     },
+    "NVIDIA_API_KEY": {
+        "description": "NVIDIA NIM API key (Nemotron models via integrate.api.nvidia.com)",
+        "prompt": "NVIDIA NIM API key",
+        "url": "https://build.nvidia.com/",
+        "password": True,
+        "category": "provider",
+        "advanced": True,
+    },
+    "NVIDIA_BASE_URL": {
+        "description": "NVIDIA NIM base URL override (for local NIM endpoints)",
+        "prompt": "NVIDIA NIM base URL (leave empty for default)",
+        "url": None,
+        "password": False,
+        "category": "provider",
+        "advanced": True,
+    },
     "DASHSCOPE_API_KEY": {
         "description": "Alibaba Cloud DashScope API key (Qwen + multi-provider models)",
         "prompt": "DashScope API Key",

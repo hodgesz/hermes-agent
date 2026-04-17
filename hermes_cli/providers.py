@@ -150,6 +150,10 @@ HERMES_OVERLAYS: Dict[str, HermesOverlay] = {
         transport="openai_chat",
         base_url_env_var="OLLAMA_BASE_URL",
     ),
+    "nvidia": HermesOverlay(
+        transport="openai_chat",
+        base_url_env_var="NVIDIA_BASE_URL",
+    ),
 }
 
 
@@ -261,6 +265,11 @@ ALIASES: Dict[str, str] = {
     "arcee-ai": "arcee",
     "arceeai": "arcee",
 
+    # nvidia
+    "nim": "nvidia",
+    "nvidia-nim": "nvidia",
+    "nemotron": "nvidia",
+
     # Local server aliases → virtual "local" concept (resolved via user config)
     "lmstudio": "lmstudio",
     "lm-studio": "lmstudio",
@@ -285,6 +294,7 @@ _LABEL_OVERRIDES: Dict[str, str] = {
     "local": "Local endpoint",
     "bedrock": "AWS Bedrock",
     "ollama-cloud": "Ollama Cloud",
+    "nvidia": "NVIDIA NIM",
 }
 
 
