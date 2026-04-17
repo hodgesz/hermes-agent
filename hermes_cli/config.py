@@ -752,6 +752,13 @@ DEFAULT_CONFIG = {
             "domains": [],
             "shared_files": [],
         },
+        "network_allowlist": {
+            "enabled": False,
+            "rules": [],
+            "shared_files": [],
+            "auto_allow_providers": True,
+            "auto_allow_mcp": True,
+        },
     },
 
     "cron": {
@@ -777,7 +784,7 @@ DEFAULT_CONFIG = {
     },
 
     # Config schema version - bump this when adding new required fields
-    "_config_version": 18,
+    "_config_version": 19,
 }
 
 # =============================================================================

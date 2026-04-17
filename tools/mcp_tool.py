@@ -951,6 +951,19 @@ class MCPServerTask:
         headers = dict(config.get("headers") or {})
         connect_timeout = config.get("connect_timeout", _DEFAULT_CONNECT_TIMEOUT)
 
+        # Network allowlist (deny-by-default) — block HTTP MCP servers whose
+        # host is not in the configured allowlist.  Stdio transport is local
+        # and not checked here.
+        try:
+            from tools.network_policy import check_network_egress
+            _egress = check_network_egress(url)
+        except Exception:
+            _egress = None
+        if _egress:
+            raise ConnectionError(
+                f"MCP server '{self.name}' URL denied by network allowlist: {_egress['message']}"
+            )
+
         # OAuth 2.1 PKCE: build httpx.Auth handler using the MCP SDK.
         # If OAuth setup fails (e.g. non-interactive environment without
         # cached tokens), re-raise so this server is reported as failed

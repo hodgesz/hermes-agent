@@ -74,6 +74,11 @@ except Exception:
     check_website_access = lambda url: None  # noqa: E731 — fail-open if policy module unavailable
 
 try:
+    from tools.network_policy import check_network_egress
+except Exception:
+    check_network_egress = lambda url: None  # noqa: E731 — fail-open if policy module unavailable
+
+try:
     from tools.url_safety import is_safe_url as _is_safe_url
 except Exception:
     _is_safe_url = lambda url: False  # noqa: E731 — fail-closed: block all if safety module unavailable
@@ -1336,7 +1341,7 @@ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
         })
 
     # Website policy check — block before navigating
-    blocked = check_website_access(url)
+    blocked = check_website_access(url) or check_network_egress(url)
     if blocked:
         return json.dumps({
             "success": False,
