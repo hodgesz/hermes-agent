@@ -430,6 +430,12 @@ def _resolve_host_user_spec() -> Optional[str]:
         return None
 
 
+# Writable-path mounts that the existing writable_args block already creates,
+# so docker_writable_paths entries overlapping these don't generate duplicate
+# --tmpfs flags (which Docker rejects).
+_DEFAULT_WRITABLE_MOUNTS = {"/tmp", "/var/tmp", "/run", "/workspace", "/home", "/root"}
+
+
 _storage_opt_ok: Optional[bool] = None  # cached result across instances
 
 
@@ -531,6 +537,11 @@ class DockerEnvironment(BaseEnvironment):
         run_as_host_user: bool = False,
         extra_args: list = None,
         persist_across_processes: bool = True,
+        security_profile: str = "standard",
+        read_only_root: bool = False,
+        user: str = "",
+        seccomp_profile: str = "",
+        writable_paths: list[str] | None = None,
     ):
         if cwd == "~":
             cwd = "/root"
@@ -722,10 +733,21 @@ class DockerEnvironment(BaseEnvironment):
         for key in sorted(self._env):
             env_args.extend(["-e", f"{key}={self._env[key]}"])
 
-        # Optional: run the container as the host user so files written into
-        # bind-mounted dirs (/workspace, /root, docker_volumes entries) are
-        # owned by that user on the host instead of by root. Skip cleanly on
-        # platforms without POSIX uid/gid (e.g. native Windows Docker).
+        # Security profile: "hardened" mounts rootfs read-only and can pair with
+        # a non-root user and seccomp profile for defence-in-depth.
+        profile = (security_profile or "standard").strip().lower()
+        if profile not in ("standard", "hardened"):
+            logger.warning(
+                "Unknown docker_security_profile %r; falling back to 'standard'", security_profile
+            )
+            profile = "standard"
+        hardened = profile == "hardened"
+        effective_read_only = hardened or bool(read_only_root)
+
+        # Determine --user. docker_run_as_host_user (upstream) maps the host
+        # uid/gid into the container so bind-mounted files are host-owned.
+        # Hardened profile's explicit docker_user is a separate knob; host
+        # user takes precedence when both are set.
         user_args: list[str] = []
         if run_as_host_user:
             user_spec = _resolve_host_user_spec()
@@ -739,7 +761,12 @@ class DockerEnvironment(BaseEnvironment):
                     "image default user."
                 )
                 # Fall back to the full cap set — without --user, an image's
-                # init may still need s6-setuidgid/gosu/su to drop privileges.
+                # entrypoint may still need gosu/su to drop privileges.
+        # fork: hardened profile's explicit docker_user is a separate knob from
+        # upstream's run_as_host_user; host-user (already handled above) takes
+        # precedence when both are set.
+        elif hardened and user:
+            user_args = ["--user", user]
 
         # Resolve the docker executable once so it works even when
         # /usr/local/bin is not in PATH (common on macOS gateway/service).
@@ -758,10 +785,50 @@ class DockerEnvironment(BaseEnvironment):
                 "skipping --init and mounting /run with exec.",
                 image,
             )
+
+        # fork: skip the gosu SETUID/SETGID caps whenever ANY explicit --user is
+        # in play (run_as_host_user OR hardened.user) — the container already
+        # starts unprivileged, so no drop is needed. Upstream's run_exec kwarg
+        # (s6-overlay mount /run with exec) is preserved.
         security_args = _build_security_args(
-            run_as_host_user and bool(user_args),
+            bool(user_args),
             run_exec=image_uses_s6_init,
         )
+        # fork: hardened profile mounts the rootfs read-only.
+        if effective_read_only:
+            security_args = security_args + ["--read-only"]
+
+        # fork: optional seccomp profile for the hardened profile.
+        profile_args: list[str] = []
+        if hardened and seccomp_profile:
+            if os.path.isfile(seccomp_profile):
+                profile_args.extend(["--security-opt", f"seccomp={seccomp_profile}"])
+            else:
+                logger.warning(
+                    "docker_seccomp_profile %r not found; using Docker default seccomp",
+                    seccomp_profile,
+                )
+
+        # fork: when rootfs is read-only, allow the caller to declare additional
+        # writable paths (e.g. /var/cache, /app/run) beyond what writable_args
+        # already covers, mounted as tmpfs.
+        extra_writable_args: list[str] = []
+        if effective_read_only and writable_paths:
+            existing_mount_targets = set(_DEFAULT_WRITABLE_MOUNTS)
+            for token in writable_args:
+                if ":" in token and token.startswith("/"):
+                    existing_mount_targets.add(token.split(":", 1)[0])
+            for path in writable_paths:
+                if not isinstance(path, str):
+                    continue
+                path = path.strip()
+                if not path or not path.startswith("/"):
+                    logger.warning("Ignoring docker_writable_paths entry %r (must be absolute)", path)
+                    continue
+                if path in existing_mount_targets:
+                    continue
+                extra_writable_args.extend(["--tmpfs", f"{path}:rw,nosuid,size=256m"])
+                existing_mount_targets.add(path)
 
         logger.info(f"Docker volume_args: {volume_args}")
         # User-supplied extra docker run flags (docker_extra_args in config.yaml).
@@ -776,7 +843,9 @@ class DockerEnvironment(BaseEnvironment):
         all_run_args = (
             security_args
             + user_args
+            + profile_args
             + writable_args
+            + extra_writable_args
             + resource_args
             + volume_args
             + env_args

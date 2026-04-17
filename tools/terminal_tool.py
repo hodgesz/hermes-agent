@@ -1114,11 +1114,18 @@ def _get_env_config() -> Dict[str, Any]:
         docker_volumes = _parse_env_var("TERMINAL_DOCKER_VOLUMES", "[]", json.loads, "valid JSON")
         docker_env = _parse_env_var("TERMINAL_DOCKER_ENV", "{}", json.loads, "valid JSON")
         docker_extra_args = _parse_env_var("TERMINAL_DOCKER_EXTRA_ARGS", "[]", json.loads, "valid JSON")
+        # fork: hardened-profile writable-path tmpfs mounts (JSON list of absolute paths).
+        docker_writable_paths = _parse_env_var(
+            "TERMINAL_DOCKER_WRITABLE_PATHS",
+            '["/workspace", "/tmp", "/var/tmp"]',
+            json.loads, "valid JSON",
+        )
     else:
         docker_forward_env = []
         docker_volumes = []
         docker_env = {}
         docker_extra_args = []
+        docker_writable_paths = []
 
     # Default cwd: local uses the host's current directory, ssh uses the
     # remote home, and everything else starts in the backend's default
@@ -1194,6 +1201,14 @@ def _get_env_config() -> Dict[str, Any]:
         "docker_env": docker_env,
         "docker_run_as_host_user": os.getenv("TERMINAL_DOCKER_RUN_AS_HOST_USER", "false").lower() in {"true", "1", "yes"},
         "docker_extra_args": docker_extra_args,
+        # fork: Docker security hardening profile (NemoClaw migration). "standard"
+        # keeps existing defaults; "hardened" adds --read-only, optional non-root
+        # user, and a seccomp profile. See tools/environments/docker.py.
+        "docker_security_profile": os.getenv("TERMINAL_DOCKER_SECURITY_PROFILE", "standard"),
+        "docker_read_only_root": os.getenv("TERMINAL_DOCKER_READ_ONLY_ROOT", "false").lower() in {"true", "1", "yes"},
+        "docker_user": os.getenv("TERMINAL_DOCKER_USER", ""),
+        "docker_seccomp_profile": os.getenv("TERMINAL_DOCKER_SECCOMP_PROFILE", ""),
+        "docker_writable_paths": docker_writable_paths,
         # Cross-process container reuse (issue #20561).  The docs claim
         # "ONE long-lived container shared across sessions" — this toggle
         # makes that real by probing for a labeled container at startup and
@@ -1256,7 +1271,7 @@ def _create_environment(env_type: str, image: str, cwd: str, timeout: int,
 
     if env_type == "local":
         return _LocalEnvironment(cwd=cwd, timeout=timeout)
-    
+
     elif env_type == "docker":
         # One-shot orphan reaper: clean up labeled containers left behind by
         # prior Hermes processes that hit SIGKILL / OOM / a closed terminal
@@ -1277,6 +1292,11 @@ def _create_environment(env_type: str, image: str, cwd: str, timeout: int,
             run_as_host_user=cc.get("docker_run_as_host_user", False),
             extra_args=docker_extra_args,
             persist_across_processes=cc.get("docker_persist_across_processes", True),
+            security_profile=cc.get("docker_security_profile", "standard"),
+            read_only_root=cc.get("docker_read_only_root", False),
+            user=cc.get("docker_user", ""),
+            seccomp_profile=cc.get("docker_seccomp_profile", ""),
+            writable_paths=cc.get("docker_writable_paths"),
         )
     
     elif env_type == "singularity":
@@ -2025,6 +2045,11 @@ def terminal_tool(
                                 "docker_extra_args": config.get("docker_extra_args", []),
                                 "docker_persist_across_processes": config.get("docker_persist_across_processes", True),
                                 "docker_orphan_reaper": config.get("docker_orphan_reaper", True),
+                                "docker_security_profile": config.get("docker_security_profile", "standard"),
+                                "docker_read_only_root": config.get("docker_read_only_root", False),
+                                "docker_user": config.get("docker_user", ""),
+                                "docker_seccomp_profile": config.get("docker_seccomp_profile", ""),
+                                "docker_writable_paths": config.get("docker_writable_paths"),
                             }
 
                         local_config = None

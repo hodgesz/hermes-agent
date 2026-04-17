@@ -625,6 +625,12 @@ def load_cli_config() -> Dict[str, Any]:
         "docker_persist_across_processes": "TERMINAL_DOCKER_PERSIST_ACROSS_PROCESSES",
         "docker_orphan_reaper": "TERMINAL_DOCKER_ORPHAN_REAPER",
         "sandbox_dir": "TERMINAL_SANDBOX_DIR",
+        # Docker security hardening
+        "docker_security_profile": "TERMINAL_DOCKER_SECURITY_PROFILE",
+        "docker_read_only_root": "TERMINAL_DOCKER_READ_ONLY_ROOT",
+        "docker_user": "TERMINAL_DOCKER_USER",
+        "docker_seccomp_profile": "TERMINAL_DOCKER_SECCOMP_PROFILE",
+        "docker_writable_paths": "TERMINAL_DOCKER_WRITABLE_PATHS",
         # Persistent shell (non-local backends)
         "persistent_shell": "TERMINAL_PERSISTENT_SHELL",
         # Sudo support (works with all backends)
