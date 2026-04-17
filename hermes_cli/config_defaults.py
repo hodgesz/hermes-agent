@@ -1763,6 +1763,19 @@ DEFAULT_CONFIG = {
         # enabled (e.g. `elevenlabs`). False = require explicit pip install for everything beyond
         # the base set (restricted/audited/air-gapped environments).
         "allow_lazy_installs": True,
+        # fork: allowlist-based network egress policy. When enabled, outbound
+        # requests from tools (web/browser/mcp) are gated against `rules`
+        # (host/port patterns). auto_allow_providers/auto_allow_mcp seed the
+        # allowlist from registered providers / MCP servers; shared_files
+        # lets multiple configs share one allowlist file. See
+        # tools/network_policy.py.
+        "network_allowlist": {
+            "enabled": False,
+            "rules": [],
+            "shared_files": [],
+            "auto_allow_providers": True,
+            "auto_allow_mcp": True,
+        },
     },
 
     "cron": {

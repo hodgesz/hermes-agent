@@ -26,6 +26,7 @@ from tools.web_tools_extract import (
     _extract_safe_urls, _merge_in_order, _no_provider_error, _resolve_extract_provider, _result_entry,
     _strict_selection_error, _validate_extract_urls,
 )
+from tools.network_policy import check_network_egress  # fork: allowlist egress gate
 
 logger = logging.getLogger(__name__)
 
@@ -366,16 +367,19 @@ async def web_extract_tool(urls: List[Any], format: str = None, char_limit: Opti
 
     try:
         logger.info("Extracting content from %d URL(s)", len(normalized_urls))
-        # SSRF protection — filter private/internal URLs before any backend.
+        # SSRF protection & network allowlist — filter private/internal URLs before any backend.
         safe_urls, safe_indices, ssrf_blocked = [], [], {}
         for index, url in zip(normalized_indices, normalized_urls):
-            if await async_is_safe_url(url):
-                safe_urls.append(url)
-                safe_indices.append(index)
-            else:
+            egress = check_network_egress(url)
+            if egress is not None:
+                ssrf_blocked[index] = _result_entry(url, egress.get("message"))
+            elif not await async_is_safe_url(url):
                 ssrf_blocked[index] = _result_entry(
                     url, "Blocked: URL targets a private or internal network address"
                 )
+            else:
+                safe_urls.append(url)
+                safe_indices.append(index)
 
         results = []
         if safe_urls:

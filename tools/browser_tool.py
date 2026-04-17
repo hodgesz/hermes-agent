@@ -74,6 +74,11 @@ except Exception:
     check_website_access = lambda url: None  # noqa: E731 — fail-open if policy module unavailable
 
 try:
+    from tools.network_policy import check_network_egress
+except Exception:
+    check_network_egress = lambda url: None  # noqa: E731 — fail-open if policy module unavailable
+
+try:
     from tools.url_safety import (
         _is_declared_fake_ip,
         is_safe_url as _is_safe_url,
@@ -652,7 +657,7 @@ def _url_policy_error(url: str, *, auto_local: bool = False) -> Optional[dict]:
         return _err("Blocked: URL targets a cloud metadata endpoint")
     if not local and not auto_local and not _cloud._allow_private_urls() and not _is_safe_url(url):
         return _err("Blocked: URL targets a private or internal address")
-    blocked = check_website_access(url)
+    blocked = check_website_access(url) or check_network_egress(url)
     if blocked:
         return _err(blocked["message"],
                     blocked_by_policy={"host": blocked["host"], "rule": blocked["rule"], "source": blocked["source"]})
@@ -944,6 +949,7 @@ def browser_press(key: str, task_id: Optional[str] = None) -> str:
 def _blocked_private_page_json(blocked_url: str, why: str) -> str:
     """Refusal payload for a page whose URL targets a private/internal address."""
     return _dumps(_err(f"Blocked: page URL targets a private or internal address ({blocked_url}). {why}"))
+
 
 
 def _blocked_private_page(effective_task_id: str, why: str) -> Optional[str]:

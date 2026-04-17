@@ -535,6 +535,19 @@ class MCPServerTransportMixin:
             url, live_headers = live
             headers.update(live_headers)
         logger.debug("MCP server '%s': connecting to %s", self.name, url)
+
+        # Network allowlist (deny-by-default) — block HTTP MCP servers whose
+        # host is not in the configured allowlist. Stdio transport is local
+        # and not checked here.
+        try:
+            from tools.network_policy import check_network_egress
+            _egress = check_network_egress(url)
+        except Exception:
+            _egress = None
+        if _egress:
+            raise ConnectionError(
+                f"MCP server '{self.name}' URL denied by network allowlist: {_egress['message']}"
+            )
         self._http_rejection = {}  # last 4xx/5xx the owned client saw this attempt (recorder hook)
         # Agent Plugins v1 strict_redirect_headers: configured headers MUST NOT follow a cross-origin
         # redirect — capture their names BEFORE client-generated headers are merged in.
