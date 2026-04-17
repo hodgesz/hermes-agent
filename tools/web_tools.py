@@ -100,6 +100,7 @@ from tools.managed_tool_gateway import (
 from tools.tool_backend_helpers import managed_nous_tools_enabled, prefers_gateway
 from tools.url_safety import is_safe_url
 from tools.website_policy import check_website_access
+from tools.network_policy import check_network_egress
 
 logger = logging.getLogger(__name__)
 
@@ -1380,7 +1381,7 @@ async def web_extract_tool(
                         continue
 
                     # Website policy check — block before fetching
-                    blocked = check_website_access(url)
+                    blocked = check_website_access(url) or check_network_egress(url)
                     if blocked:
                         logger.info("Blocked web_extract for %s by rule %s", blocked["host"], blocked["rule"])
                         results.append({
@@ -1431,7 +1432,7 @@ async def web_extract_tool(
 
                         # Re-check final URL after redirect
                         final_url = metadata.get("sourceURL", url)
-                        final_blocked = check_website_access(final_url)
+                        final_blocked = check_website_access(final_url) or check_network_egress(final_url)
                         if final_blocked:
                             logger.info("Blocked redirected web_extract for %s by rule %s", final_blocked["host"], final_blocked["rule"])
                             results.append({
@@ -1660,7 +1661,7 @@ async def web_crawl_tool(
                     "error": "Blocked: URL targets a private or internal network address"}]}, ensure_ascii=False)
 
             # Website policy check
-            blocked = check_website_access(url)
+            blocked = check_website_access(url) or check_network_egress(url)
             if blocked:
                 logger.info("Blocked web_crawl for %s by rule %s", blocked["host"], blocked["rule"])
                 return json.dumps({"results": [{"url": url, "title": "", "content": "", "error": blocked["message"],
@@ -1762,7 +1763,7 @@ async def web_crawl_tool(
                 "error": "Blocked: URL targets a private or internal network address"}]}, ensure_ascii=False)
 
         # Website policy check — block before crawling
-        blocked = check_website_access(url)
+        blocked = check_website_access(url) or check_network_egress(url)
         if blocked:
             logger.info("Blocked web_crawl for %s by rule %s", blocked["host"], blocked["rule"])
             return json.dumps({"results": [{"url": url, "title": "", "content": "", "error": blocked["message"],
@@ -1874,7 +1875,7 @@ async def web_crawl_tool(
             title = metadata.get("title", "")
             
             # Re-check crawled page URL against policy
-            page_blocked = check_website_access(page_url)
+            page_blocked = check_website_access(page_url) or check_network_egress(page_url)
             if page_blocked:
                 logger.info("Blocked crawled page %s by rule %s", page_blocked["host"], page_blocked["rule"])
                 pages.append({

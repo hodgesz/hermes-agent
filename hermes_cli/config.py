@@ -1221,6 +1221,13 @@ DEFAULT_CONFIG = {
             "domains": [],
             "shared_files": [],
         },
+        "network_allowlist": {
+            "enabled": False,
+            "rules": [],
+            "shared_files": [],
+            "auto_allow_providers": True,
+            "auto_allow_mcp": True,
+        },
     },
 
     "cron": {
