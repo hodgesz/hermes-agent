@@ -365,6 +365,25 @@ DEFAULT_CONFIG = {
         # Keep a long-lived bash shell across execute() calls so cwd/env/shell variables survive.
         # Applies to non-local backends (SSH); local is opt-in via TERMINAL_LOCAL_PERSISTENT env.
         "persistent_shell": True,
+        # Docker security profile — "standard" applies the baseline hardening
+        # (cap-drop ALL, no-new-privileges, tmpfs limits). "hardened" additionally
+        # mounts the root filesystem read-only, drops to a non-root user when
+        # set, and applies a seccomp profile when provided. Writable paths must
+        # be listed explicitly via docker_writable_paths.
+        "docker_security_profile": "standard",
+        # Mount the container rootfs read-only when docker_security_profile is
+        # "hardened". Forced writable paths are supplied via docker_writable_paths.
+        "docker_read_only_root": False,
+        # Run container processes as this user (e.g. "1000:1000" or "nobody").
+        # Empty = use the image default user. Applied when profile is "hardened".
+        "docker_user": "",
+        # Path to a Docker seccomp JSON profile. Empty = Docker default.
+        # Used only when docker_security_profile is "hardened".
+        "docker_seccomp_profile": "",
+        # Paths inside the container to mount as writable tmpfs when using the
+        # hardened profile with read-only rootfs. Defaults cover the common
+        # package-manager / agent scratch paths.
+        "docker_writable_paths": ["/workspace", "/tmp", "/var/tmp"],
     },
 
     "web": {
