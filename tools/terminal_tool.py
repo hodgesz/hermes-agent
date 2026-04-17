@@ -1086,6 +1086,19 @@ def _get_env_config() -> Dict[str, Any]:
         "container_persistent": os.getenv("TERMINAL_CONTAINER_PERSISTENT", "true").lower() in ("true", "1", "yes"),
         "docker_volumes": _parse_env_var("TERMINAL_DOCKER_VOLUMES", "[]", json.loads, "valid JSON"),
         "docker_run_as_host_user": os.getenv("TERMINAL_DOCKER_RUN_AS_HOST_USER", "false").lower() in ("true", "1", "yes"),
+        # Docker security hardening profile (Phase 4 of NemoClaw migration).
+        # "standard" keeps existing defaults; "hardened" adds --read-only,
+        # optional non-root user, and a seccomp profile.
+        "docker_security_profile": os.getenv("TERMINAL_DOCKER_SECURITY_PROFILE", "standard"),
+        "docker_read_only_root": os.getenv("TERMINAL_DOCKER_READ_ONLY_ROOT", "false").lower() in ("true", "1", "yes"),
+        "docker_user": os.getenv("TERMINAL_DOCKER_USER", ""),
+        "docker_seccomp_profile": os.getenv("TERMINAL_DOCKER_SECCOMP_PROFILE", ""),
+        "docker_writable_paths": _parse_env_var(
+            "TERMINAL_DOCKER_WRITABLE_PATHS",
+            '["/workspace", "/tmp", "/var/tmp"]',
+            json.loads,
+            "valid JSON",
+        ),
     }
 
 
@@ -1131,7 +1144,7 @@ def _create_environment(env_type: str, image: str, cwd: str, timeout: int,
 
     if env_type == "local":
         return _LocalEnvironment(cwd=cwd, timeout=timeout)
-    
+
     elif env_type == "docker":
         return _DockerEnvironment(
             image=image, cwd=cwd, timeout=timeout,
@@ -1143,6 +1156,11 @@ def _create_environment(env_type: str, image: str, cwd: str, timeout: int,
             forward_env=docker_forward_env,
             env=docker_env,
             run_as_host_user=cc.get("docker_run_as_host_user", False),
+            security_profile=cc.get("docker_security_profile", "standard"),
+            read_only_root=cc.get("docker_read_only_root", False),
+            user=cc.get("docker_user", ""),
+            seccomp_profile=cc.get("docker_seccomp_profile", ""),
+            writable_paths=cc.get("docker_writable_paths"),
         )
     
     elif env_type == "singularity":
@@ -1791,6 +1809,11 @@ def terminal_tool(
                                 "docker_forward_env": config.get("docker_forward_env", []),
                                 "docker_env": config.get("docker_env", {}),
                                 "docker_run_as_host_user": config.get("docker_run_as_host_user", False),
+                                "docker_security_profile": config.get("docker_security_profile", "standard"),
+                                "docker_read_only_root": config.get("docker_read_only_root", False),
+                                "docker_user": config.get("docker_user", ""),
+                                "docker_seccomp_profile": config.get("docker_seccomp_profile", ""),
+                                "docker_writable_paths": config.get("docker_writable_paths"),
                             }
 
                         local_config = None
