@@ -98,6 +98,7 @@ from tools.tool_backend_helpers import (  # noqa: F401
     prefers_gateway,
 )
 from tools.url_safety import async_is_safe_url, normalize_url_for_request, sensitive_query_param_name
+from tools.network_policy import check_network_egress  # fork: allowlist egress gate
 import sys
 
 logger = logging.getLogger(__name__)
@@ -844,14 +845,25 @@ async def web_extract_tool(
         logger.info("Extracting content from %d URL(s)", len(normalized_urls))
 
         # ── SSRF protection — filter out private/internal URLs before any backend ──
+        # The fork's network-egress allowlist runs in the same gate: v0.17 moved
+        # per-URL website/policy checks out of web_tools (extraction now dispatches
+        # to provider plugins), so this single filter is the one place all
+        # outbound web-extract URLs pass through. check_network_egress is a
+        # cheap sync host/port allowlist check that fail-opens on misconfigured
+        # policy (returns None); async_is_safe_url handles SSRF/private ranges.
         safe_urls = []
         safe_indices = []
         ssrf_blocked: Dict[int, Dict[str, Any]] = {}
         for index, url in zip(normalized_indices, normalized_urls):
-            if not await async_is_safe_url(url):
+            egress = check_network_egress(url)
+            if egress is not None or not await async_is_safe_url(url):
+                _reason = (
+                    egress.get("message") if egress is not None
+                    else "Blocked: URL targets a private or internal network address"
+                )
                 ssrf_blocked[index] = {
                     "url": url, "title": "", "content": "",
-                    "error": "Blocked: URL targets a private or internal network address",
+                    "error": _reason,
                 }
             else:
                 safe_urls.append(url)
