@@ -1,12 +1,12 @@
 ---
 name: morning-briefing
-description: Concise daily morning briefing (weather + news + markets + sports). Designed for cron invocation and Telegram delivery — keeps output under 500 words.
-version: 1.0.0
+description: Warm daily briefing (weather + news + markets + sports) with tight anti-hallucination rules. Designed for launchd invocation and Telegram delivery — under 500 words.
+version: 2.0.0
 author: hodgesz
 license: MIT
 metadata:
   hermes:
-    tags: [daily, briefing, cron, morning, news, weather]
+    tags: [daily, briefing, launchd, morning, news, weather]
     config:
       - key: MORNING_BRIEFING_LOCATION
         description: City/zip for weather lookup (default Denver)
@@ -18,91 +18,131 @@ prerequisites:
 
 # Morning Briefing
 
-Generate a concise daily morning briefing. Use this skill when the user asks for a morning briefing, daily summary, or when triggered by the scheduled cron job.
-
-## Invocation
-
-- **Cron** (see Phase 6 of the fork plan): `0 7 * * * --skill morning-briefing --deliver telegram`
-- **Manual**: user asks "morning briefing" or `/morning-briefing`
+Produce a warm, accurate daily briefing for Jonathan. This runs under launchd
+and is delivered verbatim to Telegram. Jonathan reads it on his phone first
+thing — tone should feel like a friend who read the news for him.
 
 ## User Profile
 
 - Name: Jonathan Hodges
 - Location: Centennial, CO (Denver area)
 - Timezone: Mountain Time
-- Interests: Pro cycling (Pogačar, Van der Poel, etc.), Broncos, Nuggets, Auburn Tigers, tech/AI, local events, big news
+- Interests (in priority order):
+  1. Pro cycling (Pogačar, Van der Poel, Vingegaard; Monuments, Grand Tours, Classics)
+  2. Denver Nuggets (NBA)
+  3. Auburn Tigers (CFB)
+  4. Denver Broncos (NFL)
+  5. Major tech/AI news
+  6. Big world/US news
+  7. Denver/Colorado local news
 
 ## Workflow
 
-### 1. Gather local data
-
-Run the gather script first. It returns weather + date + market-hours hint as JSON (no model calls, stdlib only, cheap):
+### 1. Gather local data (weather)
 
 ```bash
 python3 "$SKILL_DIR/scripts/morning_data.py" --location "${MORNING_BRIEFING_LOCATION:-Denver}"
 ```
 
-Parse the JSON. If `weather.error` is present, fall back to `web_search` for "Denver weather today".
+Parse the JSON for temperature, high/low, condition, precip chance.
+If `weather.error` is present OR the script itself fails, fall back to
+`web_search` for "Denver weather today forecast". **Never invent numbers.**
 
-### 2. Top news (web_search)
+### 2. Top news (web_search, 3–4 items)
 
-Use `web_search` for 3–4 top headlines. Prioritize in this order:
+Call `web_search` for each category in priority order. **One search per
+category** unless results are thin. Priorities:
 
-1. Major world/US news
-2. Tech/AI news
-3. Pro cycling results or major stage races
-4. Denver/Colorado local news worth noting
+1. One major world/US story
+2. One tech/AI story
+3. One cycling result or preview (if any race today/tomorrow)
+4. One Denver/Colorado item (optional, only if notable)
 
-**One sentence per headline.** Include source name. Deduplicate — if three sources run the same story, it's one bullet.
+**One sentence per headline. Always cite the source.** If a search returns
+no relevant hits, skip the bullet — do not pad with training-data knowledge.
 
 ### 3. Markets (weekdays only)
 
-If `market_hint.likely_open` is true OR it's a weekday morning pre-open, search "stock market today S&P 500". Report:
+Skip entirely on weekends. On weekdays, one `web_search` for
+"S&P 500 today close" and report direction + approximate level + one notable
+mover if visible in results. **Do not guess levels.** If results are stale
+or unclear, say "Markets data unavailable — check later" instead of making
+numbers up.
 
-- S&P 500 direction + approximate level
-- One notable mover if any
-- Skip entirely on weekends
+### 4. Sports (today/tomorrow only)
 
-### 4. Sports (if notable)
+For each team in priority order (Nuggets, Auburn, Broncos, cycling),
+`web_search` for games or results dated today or yesterday. Report:
 
-Check for recent results or upcoming games for: Broncos, Nuggets, Auburn Tigers, pro cycling races. Skip the section if nothing notable (don't pad).
+- **Result** if the game is finished: "Nuggets 112, Thunder 108. Jokić 32/14/9."
+- **Preview** if the game is today: "Nuggets host Timberwolves 1:30 PM MT — Game 1."
+- **Skip the team entirely** if nothing is happening today/tomorrow.
+
+Never report a score that wasn't in the search results. Never assume a
+playoff matchup or date — search and confirm.
 
 ### 5. Today's focus (optional)
 
-If the user has mentioned priorities, tasks, or meetings in recent conversations, include a one-line reminder. Otherwise skip.
+If the session history shows priorities, tasks, or meetings, include one
+line. Otherwise skip.
 
 ## Output Format
 
-Keep the total under 500 words — this goes to Telegram.
+Keep total under 500 words. Use Markdown (Telegram renders it). Emoji
+are welcome — Jonathan likes a warm, friendly tone.
 
 ```text
-Morning Briefing — [Day, Month Date]
+Good morning, Jonathan! [Weekday, Month Day] ☀️
 
-WEATHER (Denver)
+---
+
+## 🌤️ Weather — Centennial, CO
 [temp]°F, [condition]. High [X]° / Low [Y]°. [precip]% chance of rain.
+[One short note about the day's weather if notable — cold front, wind,
+ snow chance, nice afternoon, etc.]
 
-NEWS
-- [Headline 1] — [Source]
-- [Headline 2] — [Source]
-- [Headline 3] — [Source]
+---
 
-MARKETS
-S&P 500: [direction] at [level]. [Notable mover if any.]
+## 🌍 News
+- [Headline sentence] — *[Source]*
+- [Headline sentence] — *[Source]*
+- [Headline sentence] — *[Source]*
 
-SPORTS
-[Any notable results or upcoming games]
+---
 
-Have a great day!
+## 📈 Markets
+S&P 500: [direction] at [level]. [Optional one-line driver.]
+
+---
+
+## 🏀 Sports
+[Team section with emoji: 🏀 Nuggets, 🐯 Auburn, 🐴 Broncos, 🚴 Cycling.
+ One or two sentences each. Skip any section with nothing to report.]
+
+---
+
+Have a great [weekday]! 🍺
 ```
 
-## Cron Silent Mode
+## Hard Rules (Anti-Hallucination)
 
-If the cron runner sets `HERMES_CRON_SILENT_IF_EMPTY=1` and every section other than weather is empty (weekend + no news + no sports), return the literal string `[SILENT]` so the cron delivery layer suppresses the Telegram message.
+1. **Cite every factual claim.** Every headline and every score must come
+   from a `web_search` result returned in this run. No training-data facts.
+2. **No preamble in output.** Do not write "I'll search…", "Let me
+   check…", "Good results on X". That commentary is TUI chrome — your
+   final message is delivered verbatim to Telegram. Start directly with
+   "Good morning, Jonathan!".
+3. **Never fabricate scores, dates, or matchups.** If the search doesn't
+   return a definitive result, skip the item or say "result pending".
+4. **Weather from script first.** Only fall back to `web_search` if
+   `morning_data.py` fails.
+5. **Weekends: no markets section.**
+6. **Skip rather than pad.** A short, accurate briefing is better than a
+   long one with made-up filler.
+7. **No investment advice.** Markets section is headline-level only.
 
-## Rules
+## Silent Mode
 
-1. **Brevity wins**: 500 words max, short bullets, no preamble like "Here's your briefing"
-2. Don't fabricate headlines — if `web_search` fails, skip the section and note it briefly
-3. Use `morning_data.py` weather first; only fall back to `web_search` if it errors
-4. No emoji unless the user explicitly asks — per project convention
-5. Never include investment advice; markets section is headline-level only
+If `HERMES_CRON_SILENT_IF_EMPTY=1` is set AND every section except weather
+is empty, return the literal string `[SILENT]` so the delivery layer
+suppresses the Telegram message.
