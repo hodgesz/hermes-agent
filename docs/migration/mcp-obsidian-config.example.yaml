@@ -1,0 +1,64 @@
+# Example: Obsidian vault MCP integration for ~/.hermes/config.yaml
+#
+# Wires two MCP servers against a local Obsidian vault:
+#   - obsidian: rich operations (search, frontmatter, tags) via the
+#     "Local REST API" Obsidian community plugin
+#   - filesystem: direct markdown I/O scoped to the vault root
+#
+# Prerequisites (one-time):
+#   1. brew install --cask obsidian
+#   2. mkdir -p "$HERMES_OBSIDIAN_VAULT"   # e.g. ~/Documents/ObsidianVault
+#   3. Open Obsidian → Open folder as vault → trust author & enable plugins
+#   4. Settings → Community plugins → turn on community plugins →
+#      Browse → install "Local REST API" (Adam Coddington) → Enable
+#   5. Disable the "Enable Non-encrypted (HTTP) Server" toggle — HTTPS only.
+#      Keep the encrypted server ON (default port 27124).
+#   6. Copy the API key shown in the plugin's settings panel.
+#   7. Copy the self-signed cert from the plugin's data.json at
+#      $HERMES_OBSIDIAN_VAULT/.obsidian/plugins/obsidian-local-rest-api/data.json
+#      (field: crypto.cert) into ~/.hermes/certs/obsidian-local-rest-api.pem
+#      and chmod 600.
+#
+# Secrets live in ~/.hermes/.env (mode 0600). Both files should be 0600:
+#
+#   ~/.hermes/.env:
+#       OBSIDIAN_API_KEY=<api-key-from-plugin-settings>
+#
+#   ~/.zshrc (or equivalent):
+#       export HERMES_OBSIDIAN_VAULT="$HOME/Documents/ObsidianVault"
+#
+# mcp_tool.py interpolates ${VAR} from os.environ (which includes values
+# loaded from ~/.hermes/.env), so secrets never appear in config.yaml.
+#
+# Security notes:
+#   - OBSIDIAN_VERIFY_SSL=true pins TLS verification. NODE_EXTRA_CA_CERTS
+#     points at the single self-signed cert the plugin issued. This avoids
+#     the OBSIDIAN_VERIFY_SSL=false shortcut shown in many MCP tutorials.
+#   - OBSIDIAN_BASE_URL uses 127.0.0.1 (not "localhost") to avoid any IPv6
+#     resolution surprise with the cert's SAN.
+#   - The filesystem server's writable scope is restricted to the single
+#     vault directory via the CLI arg. Nothing else is reachable.
+
+mcp_servers:
+  obsidian:
+    command: npx
+    args:
+      - -y
+      - obsidian-mcp-server@2.0.7
+    env:
+      OBSIDIAN_API_KEY: ${OBSIDIAN_API_KEY}
+      OBSIDIAN_BASE_URL: https://127.0.0.1:27124
+      OBSIDIAN_VERIFY_SSL: "true"
+      NODE_EXTRA_CA_CERTS: ${HOME}/.hermes/certs/obsidian-local-rest-api.pem
+      MCP_TRANSPORT_TYPE: stdio
+    timeout: 120
+    connect_timeout: 60
+
+  filesystem:
+    command: npx
+    args:
+      - -y
+      - "@modelcontextprotocol/server-filesystem"
+      - ${HERMES_OBSIDIAN_VAULT}
+    timeout: 120
+    connect_timeout: 60
