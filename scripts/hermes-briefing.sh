@@ -32,6 +32,18 @@ if [[ -f "$HOME/.hermes/.env" ]]; then
   done < <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$HOME/.hermes/.env" || true)
 fi
 
+# Put node on PATH so npx-launched MCP servers (obsidian/filesystem/peekaboo)
+# can resolve their `#!/usr/bin/env node` shebangs. launchd's plist PATH only
+# covers Homebrew; user's node lives under nvm. Pick the newest installed
+# version and prepend it — no-op when node isn't nvm-managed.
+if [[ -d "$HOME/.nvm/versions/node" ]]; then
+  NVM_LATEST=$(ls -1 "$HOME/.nvm/versions/node" 2>/dev/null \
+    | sort -V | tail -n1)
+  if [[ -n "$NVM_LATEST" && -x "$HOME/.nvm/versions/node/$NVM_LATEST/bin/node" ]]; then
+    export PATH="$HOME/.nvm/versions/node/$NVM_LATEST/bin:$PATH"
+  fi
+fi
+
 SKILL=""
 CHAT_ID="${TELEGRAM_HOME_CHANNEL:-}"
 JOB_LABEL=""
@@ -66,6 +78,12 @@ if [[ -z "$PROMPT" ]]; then
     *)                      PROMPT="Run the ${SKILL} skill" ;;
   esac
 fi
+
+# Anchor today's date in the prompt so the model doesn't rely on training-data
+# guesses (observed: briefing reported "Sunday April 19" on an actual Monday).
+# Uses the local clock so it matches the user's timezone, not UTC.
+TODAY_STR=$(date '+%A, %B %-d, %Y')
+PROMPT="Today is ${TODAY_STR}. ${PROMPT}"
 
 # Resolve the gateway-owned DM session so Telegram replies keep context.
 # Gateway stores session_key -> session_id in ~/.hermes/sessions/sessions.json.
