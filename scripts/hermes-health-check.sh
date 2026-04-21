@@ -13,14 +13,14 @@
 
 set -euo pipefail
 
-# Per-job staleness threshold (hours). Anything longer = fail.
-#   morning-briefing runs daily      -> 25h grace
-#   adhd-checkin runs 3x weekdays    -> 72h grace (covers weekend gap)
-#   crm-followups runs weekly        -> 170h grace (~7 days + buffer)
-declare -A MAX_AGE_HOURS=(
-  [morning-briefing]=25
-  [adhd-checkin]=72
-  [crm-followups]=170
+# Jobs to watch, as "job_name:max_age_hours" pairs. Associative arrays
+# would be tidier but macOS ships bash 3.2 — no `declare -A`.
+# morning-briefing runs daily -> 25h grace.
+# adhd-checkin and crm-followups plists are currently disabled
+# (~/Library/LaunchAgents/com.hermes.*.plist.disabled); add entries
+# like "adhd-checkin:72" or "crm-followups:170" here when re-enabling.
+JOBS=(
+  "morning-briefing:25"
 )
 
 QUIET=0
@@ -44,7 +44,7 @@ FAILURES=()
 
 check_job() {
   local job="$1"
-  local max_hours="${MAX_AGE_HOURS[$job]:-25}"
+  local max_hours="$2"
   local status_file="/tmp/hermes-${job}-status.json"
 
   if [[ ! -f "$status_file" ]]; then
@@ -89,8 +89,8 @@ check_job() {
   esac
 }
 
-for job in "${!MAX_AGE_HOURS[@]}"; do
-  check_job "$job"
+for entry in "${JOBS[@]}"; do
+  check_job "${entry%%:*}" "${entry##*:}"
 done
 
 if [[ ${#FAILURES[@]} -eq 0 ]]; then
