@@ -70,10 +70,21 @@ fi
 
 JOB_LABEL="${JOB_LABEL:-$SKILL}"
 # Default prompt mirrors NemoClaw's pattern — one verb, let the skill drive.
+# adhd-founder-planner: the skill's interactive commands (plan/migrate/dopamine)
+# all open by asking questions, which doesn't work for a scheduled push where
+# the user hasn't spoken yet. Use the `push` command for launchd runs — it's
+# non-interactive and varies by time of day.
 if [[ -z "$PROMPT" ]]; then
   case "$SKILL" in
     morning-briefing)       PROMPT="Give me my morning briefing" ;;
-    adhd-founder-planner)   PROMPT="Run an ADHD check-in for me right now" ;;
+    adhd-founder-planner)
+      HOUR=$(date '+%-H')
+      if   (( HOUR < 12 )); then PUSH_SLOT="morning kickoff"
+      elif (( HOUR < 16 )); then PUSH_SLOT="midday reset"
+      else                       PUSH_SLOT="afternoon wind-down"
+      fi
+      PROMPT="Run the adhd-founder-planner 'push' command for the ${PUSH_SLOT} slot"
+      ;;
     personal-crm)           PROMPT="Show me this week's relationship follow-ups" ;;
     *)                      PROMPT="Run the ${SKILL} skill" ;;
   esac
@@ -153,6 +164,9 @@ for line in lines:
     if 'DeprecationWarning' in s: continue
     if 'pairing required' in s: continue
     if s.startswith('Loading skill'): continue
+    # MCP server startup banners (filesystem MCP prints these to stderr).
+    if s.startswith('Secure MCP Filesystem Server running on stdio'): continue
+    if s.startswith('Client does not support MCP Roots'): continue
     if s.startswith('↻ Resumed session'): continue
     if s.startswith('messages, '): continue
     if s.startswith('session_id: '): continue
