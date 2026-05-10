@@ -146,3 +146,9 @@ Have a great [weekday]! 🍺
 If `HERMES_CRON_SILENT_IF_EMPTY=1` is set AND every section except weather
 is empty, return the literal string `[SILENT]` so the delivery layer
 suppresses the Telegram message.
+
+## Known Pitfalls
+
+- **Do not run briefings in a long-lived shared session.** If the same session accumulates 40+ messages, context compaction triggers. LiteLLM's translation of Anthropic tool call IDs (`tooluse_...` format) fails during compaction with HTTP 500 — killing the briefing mid-run.
+- **Always use a cron job** so each morning briefing runs in its own fresh session. Manually requesting briefings in a persistent conversation causes the session to grow across days until compaction breaks it.
+- If you see `⟳ compacting context…` in the failure message, the root cause is almost certainly a stale long-running session, not a model or API issue.
