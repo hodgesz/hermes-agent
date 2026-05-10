@@ -561,6 +561,28 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
         error = _trust_gate_check(server_name, tool_name) or _check_circuit_breaker(server_name)
         if error is not None:
             return error
+
+        # Approval gate — runs before the underlying MCP call. Config in
+        # ~/.hermes/config.yaml under `mcp_approval` decides which tools
+        # auto-approve vs prompt (CLI) / enqueue (gateway). See
+        # tools/mcp_approval.py for policy resolution details.
+        try:
+            from tools.mcp_approval import check_mcp_tool
+            decision = check_mcp_tool(server_name, tool_name, args)
+        except Exception as exc:
+            # Fail closed if the approval module itself errors — desktop
+            # control without a working gate is not something to paper over.
+            logger.exception("MCP approval check failed: %s", exc)
+            return json.dumps({
+                "error": f"MCP approval check failed: {exc}"
+            }, ensure_ascii=False)
+        if not decision.get("approved"):
+            payload = {"error": decision.get("message") or "BLOCKED"}
+            if decision.get("status"):
+                payload["status"] = decision["status"]
+            if decision.get("pattern_key"):
+                payload["pattern_key"] = decision["pattern_key"]
+            return json.dumps(payload, ensure_ascii=False)
         server, error = _acquire_call_server(server_name, tool_timeout)
         if server is None:
             return error
