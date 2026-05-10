@@ -96,48 +96,20 @@ fi
 TODAY_STR=$(date '+%A, %B %-d, %Y')
 PROMPT="Today is ${TODAY_STR}. ${PROMPT}"
 
-# Resolve the gateway-owned DM session so Telegram replies keep context.
-# Gateway stores session_key -> session_id in ~/.hermes/sessions/sessions.json.
-# Fall back to title-based resume if no gateway session exists yet (e.g. the
-# briefing fires before the user has ever DM'd the bot).
-SESSION_KEY="agent:main:telegram:dm:${CHAT_ID}"
-SESSION_TITLE="telegram-dm-${CHAT_ID}"
-SESSIONS_JSON="$HOME/.hermes/sessions/sessions.json"
-SESSION_ID=""
-if [[ -f "$SESSIONS_JSON" ]]; then
-  SESSION_ID=$("$HERMES_PY" -c "
-import json, sys
-try:
-    data = json.load(open('$SESSIONS_JSON'))
-    print(data.get('$SESSION_KEY', {}).get('session_id', ''))
-except Exception:
-    pass
-" 2>/dev/null || true)
-fi
-RESUME_TARGET="${SESSION_ID:-$SESSION_TITLE}"
+# Always run in a fresh one-shot session — never resume the user's DM session.
+# Resuming caused the session to grow unboundedly across days, eventually
+# triggering context compaction which fails with LiteLLM's HTTP 500
+# (Anthropic tool-call format → OpenAI translation bug).
 STATUS_FILE="${STATUS_DIR}/hermes-${JOB_LABEL}-status.json"
 
 # Run the agent. Quiet (-Q) strips banner/spinner so we get only the response.
 # --source tool keeps it out of the user's session list.
-# --pass-session-id lets the skill include the session in any follow-ups.
-# --continue "$SESSION_TITLE" resolves/creates by title when no gateway
-# session exists yet; --resume targets a concrete session_id when it does.
-if [[ -n "$SESSION_ID" ]]; then
-  RESPONSE=$(cd "$HERMES_REPO" && "$HERMES_PY" "$HERMES_CLI" chat \
-    -Q \
-    -q "$PROMPT" \
-    -s "$SKILL" \
-    --resume "$SESSION_ID" \
-    --pass-session-id \
-    --source tool 2>&1 || true)
-else
-  RESPONSE=$(cd "$HERMES_REPO" && "$HERMES_PY" "$HERMES_CLI" chat \
-    -Q \
-    -q "$PROMPT" \
-    -s "$SKILL" \
-    --pass-session-id \
-    --source tool 2>&1 || true)
-fi
+# No --resume: fresh session every run so context never accumulates.
+RESPONSE=$(cd "$HERMES_REPO" && "$HERMES_PY" "$HERMES_CLI" chat \
+  -Q \
+  -q "$PROMPT" \
+  -s "$SKILL" \
+  --source tool 2>&1 || true)
 
 # Strip CLI/tool UI chrome so the briefing isn't polluted by non-content.
 # "↻ Resumed session ..."       — session-resume banner
