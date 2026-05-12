@@ -7,6 +7,12 @@
 # LLM invocation, just a PID lookup via the same path `hermes cron
 # status` uses.
 #
+# Install: copy to ~/.hermes/scripts/ (NOT a symlink — the cron
+# scheduler's path-safety check resolves symlinks and rejects anything
+# outside HERMES_HOME/scripts/).
+#   cp scripts/watchdogs/watchdog-gateway.sh ~/.hermes/scripts/
+#   chmod +x ~/.hermes/scripts/watchdog-gateway.sh
+#
 # Healthy  = find_gateway_pids() returns at least one PID
 # Unhealthy = empty PID list, OR subprocess error trying to check
 set -euo pipefail

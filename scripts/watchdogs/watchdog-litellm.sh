@@ -10,6 +10,12 @@
 # LiteLLM manifests as "LLM errors" all over the place. The live-probe
 # is what actually catches Bedrock auth expiry, model config drift,
 # etc. — /health alone doesn't see those until something hits them.
+#
+# Install: copy to ~/.hermes/scripts/ (NOT a symlink — the cron
+# scheduler's path-safety check resolves symlinks and rejects anything
+# outside HERMES_HOME/scripts/).
+#   cp scripts/watchdogs/watchdog-litellm.sh ~/.hermes/scripts/
+#   chmod +x ~/.hermes/scripts/watchdog-litellm.sh
 set -euo pipefail
 
 HEALTH_URL="http://localhost:4000/health"
