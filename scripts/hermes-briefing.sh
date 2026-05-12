@@ -102,62 +102,13 @@ PROMPT="Today is ${TODAY_STR}. ${PROMPT}"
 # (Anthropic tool-call format → OpenAI translation bug).
 STATUS_FILE="${STATUS_DIR}/hermes-${JOB_LABEL}-status.json"
 
-# Run the agent. Quiet (-Q) strips banner/spinner so we get only the response.
-# --source tool keeps it out of the user's session list.
-# No --resume: fresh session every run so context never accumulates.
-RESPONSE=$(cd "$HERMES_REPO" && "$HERMES_PY" "$HERMES_CLI" chat \
-  -Q \
-  -q "$PROMPT" \
-  -s "$SKILL" \
-  --source tool 2>&1 || true)
-
-# Strip CLI/tool UI chrome so the briefing isn't polluted by non-content.
-# "↻ Resumed session ..."       — session-resume banner
-# "session_id: ..."              — emitted by --pass-session-id
-# "✓ [N/M] ..."                  — tool-call progress lines
-# Permission prompt blocks       — "DANGEROUS COMMAND", policy prompts,
-#                                  [o]nce/[s]ession/[a]lways/[d]eny lines,
-#                                  "Choice [o/s/a/D]:", "✗ Denied"/"✓ Approved",
-#                                  and the indented code preview that follows
-#                                  them. These are TTY chrome that leaks
-#                                  through -Q on tool-policy refusals.
-RESPONSE=$(echo "$RESPONSE" | python3 -c "
-import re, sys
-text = sys.stdin.read()
-lines = text.splitlines()
-out = []
-skip_until_blank = False
-for line in lines:
-    s = line.rstrip()
-    if re.match(r'^\[.*\] INFO', s): continue
-    if s.startswith('[gateway]'): continue
-    if 'UNDICI_' in s: continue
-    if s.startswith('(node:'): continue
-    if 'DeprecationWarning' in s: continue
-    if 'pairing required' in s: continue
-    if s.startswith('Loading skill'): continue
-    # MCP server startup banners (filesystem MCP prints these to stderr).
-    if s.startswith('Secure MCP Filesystem Server running on stdio'): continue
-    if s.startswith('Client does not support MCP Roots'): continue
-    if s.startswith('↻ Resumed session'): continue
-    if s.startswith('messages, '): continue
-    if s.startswith('session_id: '): continue
-    if re.match(r'^\s*✓ \[\d+/\d+\]', s): continue
-    # Inter-turn model commentary from run_agent.py — not final content.
-    if re.match(r'^\s*┊ 💬', s): continue
-    # Tool progress scrollback lines (search/fetch/etc.) — non-content.
-    if re.match(r'^\s*┊ ', s): continue
-    if re.search(r'DANGEROUS COMMAND', s) or re.search(r'\[o\]nce\s+\|\s+\[s\]ession', s):
-        skip_until_blank = True
-        continue
-    if re.search(r'Choice \[o/s/a/D\]', s): continue
-    if skip_until_blank:
-        if s.strip() == '':
-            skip_until_blank = False
-        continue
-    out.append(line)
-print('\n'.join(out))
-" 2>/dev/null || echo "$RESPONSE")
+# Run the agent via `hermes -z` (one-shot mode). -z prints ONLY the final
+# response to stdout — no banner, no session_id, no tool previews, no
+# approval prompts (auto-bypassed). Replaces the older `chat -Q -q` path
+# that required manual post-processing to strip CLI chrome.
+RESPONSE=$(cd "$HERMES_REPO" && "$HERMES_PY" "$HERMES_CLI" \
+  -z "$PROMPT" \
+  -s "$SKILL" 2>&1 || true)
 
 # Classify outcome so the health check can page when briefings are dying.
 BRIEFING_STATUS="ok"
