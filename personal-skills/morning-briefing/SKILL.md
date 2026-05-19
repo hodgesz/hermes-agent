@@ -1,6 +1,6 @@
 ---
 name: morning-briefing
-description: Warm daily briefing (weather + news + markets + sports) with tight anti-hallucination rules. Designed for launchd invocation and Telegram delivery — under 500 words.
+description: Warm daily briefing (weather + news + markets + sports) with tight anti-hallucination rules. Runs via launchd (com.hermes.morning-briefing), delivered to Telegram — under 500 words. See references/infrastructure.md for full stack topology and debugging guide.
 version: 2.0.0
 author: hodgesz
 license: MIT
@@ -152,3 +152,6 @@ suppresses the Telegram message.
 - **Do not run briefings in a long-lived shared session.** If the same session accumulates 40+ messages, context compaction triggers. LiteLLM's translation of Anthropic tool call IDs (`tooluse_...` format) fails during compaction with HTTP 500 — killing the briefing mid-run.
 - **Always use a cron job** so each morning briefing runs in its own fresh session. Manually requesting briefings in a persistent conversation causes the session to grow across days until compaction breaks it.
 - If you see `⟳ compacting context…` in the failure message, the root cause is almost certainly a stale long-running session, not a model or API issue.
+- **Watchdog false alerts after Mac sleep/wake (root cause: launchd vs Hermes cron).** When watchdogs run as Hermes cron jobs (every 10m), they have no awareness of Mac sleep/wake state. After wake, the network stack takes ~30–60s to recover — Bedrock DNS fails, producing `BedrockException: Bedrock is unable to process your request` or `Cannot connect to host … nodename nor servname provided`. These fire as real alerts before the network is up. **The correct fix is to run watchdogs as launchd agents** (using `StartInterval`), not Hermes cron — launchd's timer is OS-managed and respects sleep/wake cycles, so it won't fire blindly into a not-yet-awake network. See `references/infrastructure.md` for current topology.
+- **"Bedrock is unable to process" ≠ Bedrock outage.** Before blaming AWS, check: (1) did the Mac just wake from sleep? (2) are the IAM static credentials in `~/.aws/credentials [default]` valid? The LiteLLM proxy uses static IAM keys — not SSO — so SSO expiry errors from `aws sts get-caller-identity` are irrelevant noise.
+- **Hermes cron vs launchd for scheduled jobs.** Hermes cron is convenient but has no OS sleep/wake integration. For jobs that must fire reliably at a wall-clock time (briefing) or that must NOT fire during network-down windows (watchdogs), use launchd `StartCalendarInterval` / `StartInterval` instead. Hermes cron is best for jobs that can tolerate a missed tick or that live entirely inside the Hermes/gateway process. See `references/infrastructure.md` for the full stack.
