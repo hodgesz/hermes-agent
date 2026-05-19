@@ -106,20 +106,46 @@ STATUS_FILE="${STATUS_DIR}/hermes-${JOB_LABEL}-status.json"
 # response to stdout — no banner, no session_id, no tool previews, no
 # approval prompts (auto-bypassed). Replaces the older `chat -Q -q` path
 # that required manual post-processing to strip CLI chrome.
-RESPONSE=$(cd "$HERMES_REPO" && "$HERMES_PY" "$HERMES_CLI" \
-  -z "$PROMPT" \
-  -s "$SKILL" 2>&1 || true)
+#
+# Retry on transient failures: AWS Bedrock occasionally returns 503s
+# that recover within a minute or two. A single morning blip used to
+# kill the whole briefing; retrying 3x with 60s spacing turns those
+# into a non-event. Empty stdout and the LLM-error regex below count
+# as transient — we replay until success or run out of attempts.
+LLM_FAILURE_RE='timed? out|timeout|ETIMEDOUT|request.*(fail|error)|LLM.*(fail|error|timed)|inference.*(fail|error|unavailable)|connection refused|ECONNREFUSED|(^|[^0-9])5(02|03)([^0-9]|$)|rate.limit|Traceback \(most recent|Session not found|Session '"'"'.*'"'"' not found|Use a session ID|No session found|No previous .* session|provider.*(not configured|missing)|^hermes: error:'
 
-# Classify outcome so the health check can page when briefings are dying.
-BRIEFING_STATUS="ok"
-if [[ -z "${RESPONSE// /}" ]]; then
-  RESPONSE="⚠️ ${JOB_LABEL} failed — agent returned empty response."
-  BRIEFING_STATUS="error:empty"
-elif echo "$RESPONSE" | grep -qiE "timed? out|timeout|ETIMEDOUT|request.*(fail|error)|LLM.*(fail|error|timed)|inference.*(fail|error|unavailable)|connection refused|ECONNREFUSED|(^|[^0-9])5(02|03)([^0-9]|$)|rate.limit|Traceback \(most recent|Session not found|Session '.*' not found|Use a session ID|No session found|No previous .* session|provider.*(not configured|missing)|^hermes: error:"; then
-  RESPONSE="⚠️ ${JOB_LABEL} failed — agent error:
+MAX_ATTEMPTS=3
+RETRY_DELAY=60
+RESPONSE=""
+BRIEFING_STATUS=""
+for attempt in $(seq 1 $MAX_ATTEMPTS); do
+  RESPONSE=$(cd "$HERMES_REPO" && "$HERMES_PY" "$HERMES_CLI" \
+    -z "$PROMPT" \
+    -s "$SKILL" 2>&1 || true)
+
+  if [[ -z "${RESPONSE// /}" ]]; then
+    BRIEFING_STATUS="error:empty"
+  elif echo "$RESPONSE" | grep -qiE "$LLM_FAILURE_RE"; then
+    BRIEFING_STATUS="error:llm"
+  else
+    BRIEFING_STATUS="ok"
+    break
+  fi
+
+  if [[ "$attempt" -lt "$MAX_ATTEMPTS" ]]; then
+    echo "[$(date)] ${JOB_LABEL} attempt ${attempt}/${MAX_ATTEMPTS} failed (${BRIEFING_STATUS}); retrying in ${RETRY_DELAY}s" >&2
+    sleep "$RETRY_DELAY"
+  fi
+done
+
+# After all retries exhausted, format the final-error message for delivery
+# so the health-check + Telegram surface still see something actionable.
+if [[ "$BRIEFING_STATUS" == "error:empty" ]]; then
+  RESPONSE="⚠️ ${JOB_LABEL} failed after ${MAX_ATTEMPTS} attempts — agent returned empty response."
+elif [[ "$BRIEFING_STATUS" == "error:llm" ]]; then
+  RESPONSE="⚠️ ${JOB_LABEL} failed after ${MAX_ATTEMPTS} attempts — agent error:
 
 ${RESPONSE}"
-  BRIEFING_STATUS="error:llm"
 fi
 
 # Atomic status write — health-check reads this every 10 minutes.
