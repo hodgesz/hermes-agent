@@ -17,10 +17,32 @@
 # Unhealthy = empty PID list, OR subprocess error trying to check
 set -euo pipefail
 
+# Source ~/.hermes/.env so TELEGRAM_BOT_TOKEN and TELEGRAM_HOME_CHANNEL are
+# available when running under launchd (no shell profile).
+if [[ -f "$HOME/.hermes/.env" ]]; then
+  while IFS='=' read -r key value; do
+    [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]] && continue
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    export "$key=${value}"
+  done < <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$HOME/.hermes/.env" || true)
+fi
+
 HERMES_PY="/Users/hodgesz/VsCodeProjects/hermes-agent/.venv/bin/python"
 
+# Deliver an alert message to Telegram (if credentials are available),
+# then also print to stdout for the launchd log.
+send_alert() {
+  local msg="$1"
+  echo "$msg"
+  if [[ -n "${TELEGRAM_BOT_TOKEN:-}" && -n "${TELEGRAM_HOME_CHANNEL:-}" ]]; then
+    curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+      -d "chat_id=${TELEGRAM_HOME_CHANNEL}" \
+      --data-urlencode "text=${msg}" >/dev/null || true
+  fi
+}
+
 if [[ ! -x "$HERMES_PY" ]]; then
-  echo "watchdog-gateway: hermes venv python missing at $HERMES_PY"
+  send_alert "🚨 Hermes watchdog: hermes venv python missing at $HERMES_PY"
   exit 0
 fi
 
@@ -38,13 +60,13 @@ PY
 )
 
 if [[ "$PIDS" == __ERR__* ]]; then
-  echo "🚨 Hermes watchdog: gateway PID probe failed (${PIDS})"
+  send_alert "🚨 Hermes watchdog: gateway PID probe failed (${PIDS})"
   exit 0
 fi
 
 if [[ -z "$PIDS" ]]; then
-  echo "🚨 Hermes watchdog: gateway is NOT running (no PID found)"
-  echo "Fix: hermes gateway restart"
+  send_alert "🚨 Hermes watchdog: gateway is NOT running (no PID found)
+Fix: hermes gateway restart"
   exit 0
 fi
 
