@@ -1429,18 +1429,6 @@ def test_container_finished_at_returns_none_on_zero_value():
     assert result is None
 
 
-def test_credential_mount_skipped_when_source_is_directory(monkeypatch, tmp_path, caplog):
-    """Credential mount should be skipped when source path is a directory.
-
-    In Docker-in-Docker scenarios, Docker may auto-create the source path as
-    a directory when it doesn't exist on the host.  Mounting a directory over
-    a file destination causes exit 125.
-    """
-    # Create a directory that looks like a corrupted credential file path
-    corrupted_dir = tmp_path / "google_token.json"
-    corrupted_dir.mkdir()
-
-
 def test_standard_profile_does_not_add_read_only(monkeypatch):
     """Default (standard) profile must NOT add --read-only to docker run args."""
     monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
@@ -1831,6 +1819,7 @@ def test_docker_env_warnings_never_echo_values(caplog):
     with caplog.at_level(logging.WARNING, logger="tools.environments.docker"):
         docker_env._normalize_env_dict({"TOKEN": ["sk-live-value"], "OK": "1"})
     assert "TOKEN" in caplog.text and "sk-live-value" not in caplog.text
+
 
 def test_hardened_profile_warns_and_skips_missing_seccomp(monkeypatch, caplog):
     """Missing seccomp file should warn and skip --security-opt seccomp, not fail."""
