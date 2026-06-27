@@ -41,7 +41,7 @@ fi
 
 HEALTH_URL="http://localhost:4000/health"
 CHAT_URL="http://localhost:4000/v1/chat/completions"
-MODEL="claude-sonnet-4-6"
+MODEL="gemini-2.5-flash"
 STATE_FILE="$HOME/.hermes/watchdog-litellm.state"
 THRESHOLD="${WATCHDOG_FAILURE_THRESHOLD:-3}"
 
