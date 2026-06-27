@@ -332,8 +332,15 @@ def test_browser_navigate_returns_network_policy_block(monkeypatch):
 async def test_web_extract_blocked_by_network_policy(monkeypatch):
     from tools import web_tools
 
-    monkeypatch.setattr(web_tools, "is_safe_url", lambda url: True)
-    monkeypatch.setattr(web_tools, "check_website_access", lambda url: None)
+    # v0.17 moved web-extraction policy checks into the single SSRF/egress gate
+    # at the top of web_extract_tool (extraction now dispatches to provider
+    # plugins). The fork's check_network_egress hook runs in that gate alongside
+    # async_is_safe_url. Patch the gate functions so the egress deny is the
+    # deciding factor, and confirm the backend never runs.
+    async def _allow(_url):
+        return True
+
+    monkeypatch.setattr(web_tools, "async_is_safe_url", _allow)
     monkeypatch.setattr(
         web_tools,
         "check_network_egress",
@@ -357,4 +364,7 @@ async def test_web_extract_blocked_by_network_policy(monkeypatch):
         await web_tools.web_extract_tool(["https://denied.test"], use_llm_processing=False)
     )
 
-    assert result["results"][0]["blocked_by_policy"]["rule"] == "network_allowlist"
+    # The egress-deny short-circuits in the pre-dispatch gate: the URL is
+    # returned with the fork's allowlist message and no backend call fires.
+    assert result["results"][0]["error"] == "Blocked by network allowlist"
+    assert result["results"][0]["url"] == "https://denied.test"
