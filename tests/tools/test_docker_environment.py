@@ -1245,18 +1245,6 @@ def test_container_finished_at_returns_none_on_zero_value():
     assert result is None
 
 
-def test_credential_mount_skipped_when_source_is_directory(monkeypatch, tmp_path, caplog):
-    """Credential mount should be skipped when source path is a directory.
-
-    In Docker-in-Docker scenarios, Docker may auto-create the source path as
-    a directory when it doesn't exist on the host.  Mounting a directory over
-    a file destination causes exit 125.
-    """
-    # Create a directory that looks like a corrupted credential file path
-    corrupted_dir = tmp_path / "google_token.json"
-    corrupted_dir.mkdir()
-
-
 def test_standard_profile_does_not_add_read_only(monkeypatch):
     """Default (standard) profile must NOT add --read-only to docker run args."""
     monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
@@ -1318,6 +1306,27 @@ def test_hardened_profile_applies_seccomp_when_file_exists(monkeypatch, tmp_path
     """Hardened profile + existing seccomp file should pass --security-opt seccomp=..."""
     seccomp_file = tmp_path / "seccomp.json"
     seccomp_file.write_text('{"defaultAction":"SCMP_ACT_ALLOW"}')
+
+    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
+    calls = _mock_subprocess_run(monkeypatch)
+
+    _make_dummy_env(security_profile="hardened", seccomp_profile=str(seccomp_file))
+
+    run_cmd = _run_cmd_from_calls(calls)
+    run_cmd_str = " ".join(run_cmd)
+    assert f"seccomp={seccomp_file}" in run_cmd_str
+
+
+def test_credential_mount_skipped_when_source_is_directory(monkeypatch, tmp_path, caplog):
+    """Credential mount should be skipped when source path is a directory.
+
+    In Docker-in-Docker scenarios, Docker may auto-create the source path as
+    a directory when it doesn't exist on the host.  Mounting a directory over
+    a file destination causes exit 125.
+    """
+    # Create a directory that looks like a corrupted credential file path
+    corrupted_dir = tmp_path / "google_token.json"
+    corrupted_dir.mkdir()
 
     monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
     calls = _mock_subprocess_run(monkeypatch)
@@ -1498,6 +1507,7 @@ def test_execute_does_not_recover_on_ordinary_failure(monkeypatch):
     assert "command not found" in result.get("output", "")
 
 
+<<<<<<< HEAD
 # ── /dev/shm size tests (ported from nanocoai/nanoclaw#2748) ─────────────────
 
 
@@ -1569,8 +1579,6 @@ def test_extra_args_set_shm_size_helper():
     assert docker_env._extra_args_set_shm_size(None) is False
     # non-string entries must not crash (config.yaml can be malformed)
     assert docker_env._extra_args_set_shm_size([42, None, "--shm-size=1g"]) is True
-
-
 def test_hardened_profile_warns_and_skips_missing_seccomp(monkeypatch, caplog):
     """Missing seccomp file should warn and skip --security-opt seccomp, not fail."""
     monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
