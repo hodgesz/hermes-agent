@@ -141,7 +141,8 @@ class TestBypassConditions:
     ):
         cfg = {"approvals": {"mode": "off"},
                "mcp_approval": {"servers": {"peekaboo": {"default": "require"}}}}
-        with mock_patch("hermes_cli.config.load_config", return_value=cfg):
+        with mock_patch("hermes_cli.config.load_config", return_value=cfg), \
+             mock_patch("hermes_cli.config.load_config_readonly", return_value=cfg):
             result = check_mcp_tool(
                 "peekaboo", "click", {"target": "Dock"},
                 approval_callback=lambda *a, **k: "deny",
@@ -367,7 +368,8 @@ class TestGatewayPath:
         cfg = self._cfg()
         cfg["approvals"]["gateway_timeout"] = 1  # 1-second deadline
 
-        with mock_patch("hermes_cli.config.load_config", return_value=cfg):
+        with mock_patch("hermes_cli.config.load_config", return_value=cfg), \
+             mock_patch("hermes_cli.config.load_config_readonly", return_value=cfg):
             start = time.monotonic()
             result = check_mcp_tool("peekaboo", "click", {})
             elapsed = time.monotonic() - start

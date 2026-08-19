@@ -361,7 +361,7 @@ async def test_web_extract_blocked_by_network_policy(monkeypatch):
     monkeypatch.setattr("tools.interrupt.is_interrupted", lambda: False)
 
     result = json.loads(
-        await web_tools.web_extract_tool(["https://denied.test"], use_llm_processing=False)
+        await web_tools.web_extract_tool(["https://denied.test"])
     )
 
     # The egress-deny short-circuits in the pre-dispatch gate: the URL is
