@@ -76,6 +76,7 @@ For each team in priority order (Nuggets, Auburn, Broncos, cycling),
 
 - **Result** if the game is finished: "Nuggets 112, Thunder 108. Jokić 32/14/9."
 - **Preview** if the game is today: "Nuggets host Timberwolves 1:30 PM MT — Game 1."
+- **Nuggets in July:** NBA Summer League games are active during July; check the Nuggets' official schedule page for Summer League games.
 - **Skip the team entirely** if nothing is happening today/tomorrow.
 
 Never report a score that wasn't in the search results. Never assume a
@@ -149,8 +150,11 @@ suppresses the Telegram message.
 
 ## Known Pitfalls
 
+- **Avoid conflicting stock index results by using the exact date in the query.** Simple searches for "S&P 500 today" can pull up outdated articles or pre-market futures noise. Always include the specific date in double quotes (e.g., `"S&P 500" close "July 9, 2026"`) to find the definitive closing points and percentage change.
 - **Do not run briefings in a long-lived shared session.** If the same session accumulates 40+ messages, context compaction triggers. LiteLLM's translation of Anthropic tool call IDs (`tooluse_...` format) fails during compaction with HTTP 500 — killing the briefing mid-run.
 - **Always use a cron job** so each morning briefing runs in its own fresh session. Manually requesting briefings in a persistent conversation causes the session to grow across days until compaction breaks it.
+- **Finding the absolute path of scripts:** If running outside of the standard cron/launchd environment where `$SKILL_DIR` is not set, inspect the `skill_dir` field returned by the `skill_view` tool. It provides the absolute path to the skill's root folder (e.g., `/Users/hodgesz/VsCodeProjects/hermes-agent/personal-skills/morning-briefing`), which can be used to construct the correct absolute path to run `scripts/morning_data.py`.
+- **Summer League and Off-season Sports Queries:** During the off-season, traditional sports coverage is sparse. However, NBA Summer League is highly active in July. Always search with highly specific terms like `Denver Nuggets NBA Summer League schedule July 2026 score` rather than generic team queries to retrieve active game times and box scores instead of outdated regular-season stats.
 - If you see `⟳ compacting context…` in the failure message, the root cause is almost certainly a stale long-running session, not a model or API issue.
 - **Watchdog false alerts after Mac sleep/wake (root cause: launchd vs Hermes cron).** When watchdogs run as Hermes cron jobs (every 10m), they have no awareness of Mac sleep/wake state. After wake, the network stack takes ~30–60s to recover — Bedrock DNS fails, producing `BedrockException: Bedrock is unable to process your request` or `Cannot connect to host … nodename nor servname provided`. These fire as real alerts before the network is up. **The correct fix is to run watchdogs as launchd agents** (using `StartInterval`), not Hermes cron — launchd's timer is OS-managed and respects sleep/wake cycles, so it won't fire blindly into a not-yet-awake network. See `references/infrastructure.md` for current topology.
 - **"Bedrock is unable to process" ≠ Bedrock outage.** Before blaming AWS, check: (1) did the Mac just wake from sleep? (2) are the IAM static credentials in `~/.aws/credentials [default]` valid? The LiteLLM proxy uses static IAM keys — not SSO — so SSO expiry errors from `aws sts get-caller-identity` are irrelevant noise.

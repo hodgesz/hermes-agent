@@ -41,7 +41,11 @@ fi
 
 HEALTH_URL="http://localhost:4000/health"
 CHAT_URL="http://localhost:4000/v1/chat/completions"
-MODEL="gemini-2.5-flash"
+# gemini-flash-latest is Google's auto-alias for the current flash model —
+# matches the proxy's `--model gemini/gemini-flash-latest` so the probe
+# exercises the real backing model and won't break when a dated model
+# name (e.g. gemini-2.5-flash) is retired. See watchdog log 2026-07-09.
+MODEL="gemini-flash-latest"
 STATE_FILE="$HOME/.hermes/watchdog-litellm.state"
 THRESHOLD="${WATCHDOG_FAILURE_THRESHOLD:-3}"
 
