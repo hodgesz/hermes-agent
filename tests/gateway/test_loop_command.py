@@ -34,8 +34,11 @@ def loop_env(tmp_path, monkeypatch):
     home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(home))
     loops._DB_CACHE.clear()
+    from hermes_cli import goals
+    goals._DB_CACHE.clear()
     yield home
     loops._DB_CACHE.clear()
+    goals._DB_CACHE.clear()
 
 
 def _make_runner():
@@ -96,9 +99,13 @@ async def test_gateway_loop_status_pause_stop(loop_env):
 
 @pytest.mark.asyncio
 async def test_gateway_loop_goal_note_when_goal_active(loop_env):
-    from hermes_cli.goals import GoalManager
+    from hermes_cli import goals
+    from hermes_state import SessionDB
 
-    GoalManager(session_id="sid-gateway-loop").set("finish the migration")
+    db = SessionDB()
+    goals._DB_CACHE[str(loop_env)] = db
+
+    goals.GoalManager(session_id="sid-gateway-loop").set("finish the migration")
     runner = _make_runner()
     response = await GatewayRunner._handle_loop_command(runner, _make_event("/loop 5m poll CI"))
     assert "active /goal" in response

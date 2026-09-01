@@ -443,6 +443,9 @@ if [ ! -f "$SANDBOX_ROOT/root/certs/ca.pem" ]; then
     printf '%s\n' "$ca_error" >&2
     exit 1
   fi
+  # Append the system CA bundle so anything pointing at ca.pem (CURL_CA_BUNDLE,
+  # SSL_CERT_FILE, GIT_SSL_CAINFO) trusts both the sandbox CA and the real Internet.
+  cat "$SANDBOX_ROOT/root/certs/real-ca.pem" >> "$SANDBOX_ROOT/root/certs/ca.pem"
 fi
 GIT_UPLOAD_PACK="$(command -v git-upload-pack)"
 sed "s|@GIT_UPLOAD_PACK@|$GIT_UPLOAD_PACK|" "$SANDBOX_ASSETS/ssh-shim.sh" \
