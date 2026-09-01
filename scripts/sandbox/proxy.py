@@ -19,6 +19,7 @@ Usage: proxy.py <fixture-root> <certs-dir> <real-ca-bundle>
 
 import os
 import pathlib
+import select
 import socket
 import ssl
 import subprocess
@@ -26,7 +27,11 @@ import sys
 import threading
 from urllib.parse import unquote, urlsplit
 
-ROOT, CERTS, REAL_CA = map(pathlib.Path, sys.argv[1:])
+ROOT = pathlib.Path('/work/http')
+CERTS = pathlib.Path('/work/certs')
+REAL_CA = pathlib.Path('/work/certs/real-ca.pem')
+if len(sys.argv) >= 4:
+    ROOT, CERTS, REAL_CA = map(pathlib.Path, sys.argv[1:4])
 
 LISTEN_ADDRESS = ('127.0.0.1', 8080)
 MAX_REQUEST_BYTES = 65536
@@ -150,6 +155,30 @@ def relay(source, destination):
         destination.sendall(chunk)
 
 
+def tunnel(conn, upstream):
+    """Bidirectional raw TCP relay between client and upstream."""
+    sockets = [conn, upstream]
+    while True:
+        try:
+            readable, _, exceptional = select.select(sockets, [], sockets, UPSTREAM_TIMEOUT_SECONDS)
+        except (ValueError, OSError):
+            break
+        if exceptional or not readable:
+            break
+        for s in readable:
+            other = upstream if s is conn else conn
+            try:
+                data = s.recv(MAX_REQUEST_BYTES)
+            except OSError:
+                return
+            if not data:
+                return
+            try:
+                other.sendall(data)
+            except OSError:
+                return
+
+
 def forward_https(conn, host, port, request):
     context = ssl.create_default_context(cafile=str(REAL_CA))
     with socket.create_connection((host, port), timeout=UPSTREAM_TIMEOUT_SECONDS) as raw:
@@ -169,9 +198,20 @@ def forward_http(conn, host, port, request, target):
 
 
 def handle_connect(conn, target):
-    """Intercept a CONNECT tunnel, terminating TLS with a minted cert."""
+    """Intercept a CONNECT tunnel, terminating TLS with a minted cert for fixtures,
+    or tunneling raw TCP upstream for real internet hosts (e.g. npm, PyPI)."""
     host, _, port_text = target.rpartition(':')
     port = int(port_text or '443')
+
+    # If the host has no fixtures under ROOT, tunnel raw TCP upstream directly.
+    # Intercepting TLS for non-fixture hosts breaks clients that do connection
+    # pooling (npm), HTTP/2, or rely on system CAs instead of the sandbox CA.
+    if not (ROOT / host).is_dir():
+        with socket.create_connection((host, port), timeout=UPSTREAM_TIMEOUT_SECONDS) as upstream:
+            conn.sendall(b'HTTP/1.1 200 Connection Established\r\n\r\n')
+            tunnel(conn, upstream)
+        return
+
     conn.sendall(b'HTTP/1.1 200 Connection Established\r\n\r\n')
     cert, key = cert_for(host)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -224,6 +264,13 @@ def handle(conn):
 
 
 def main():
+    global ROOT, CERTS, REAL_CA
+    if len(sys.argv) >= 4:
+        ROOT, CERTS, REAL_CA = map(pathlib.Path, sys.argv[1:4])
+    ROOT = pathlib.Path(ROOT)
+    CERTS = pathlib.Path(CERTS)
+    REAL_CA = pathlib.Path(REAL_CA)
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.bind(LISTEN_ADDRESS)

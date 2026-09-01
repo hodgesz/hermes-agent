@@ -1507,7 +1507,6 @@ def test_execute_does_not_recover_on_ordinary_failure(monkeypatch):
     assert "command not found" in result.get("output", "")
 
 
-<<<<<<< HEAD
 # ── /dev/shm size tests (ported from nanocoai/nanoclaw#2748) ─────────────────
 
 
