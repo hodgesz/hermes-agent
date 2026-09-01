@@ -857,7 +857,8 @@ check_node() {
 
     # Prefer a Hermes-managed Node from a previous run over a too-old system one.
     if [ -x "$HERMES_HOME/node/bin/node" ] && [ -x "$HERMES_HOME/node/bin/npm" ] \
-        && node_satisfies_build "$("$HERMES_HOME/node/bin/node" --version)"; then
+        && node_satisfies_build "$("$HERMES_HOME/node/bin/node" --version)" \
+        && npm_supports_npmrc "$("$HERMES_HOME/node/bin/npm" --version 2>/dev/null)"; then
         export PATH="$HERMES_HOME/node/bin:$PATH"
         log_success "Node.js $("$HERMES_HOME/node/bin/node" --version) found (Hermes-managed)"
         HAS_NODE=true
@@ -2329,7 +2330,7 @@ install_node_deps() {
         # Capture npm output so failures are diagnosable (#87340).
         local npm_log
         npm_log="$(mktemp)"
-        if ! run_with_timeout "$NODE_DEPS_TIMEOUT" npm install --silent \
+        if ! run_with_timeout "$NODE_DEPS_TIMEOUT" npm install --no-audit --no-fund \
                 >"$npm_log" 2>&1; then
             log_error "npm install failed or timed out; Node.js dependencies were not installed"
             if [ -s "$npm_log" ]; then
