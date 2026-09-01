@@ -28,8 +28,10 @@ def hermes_home(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(home))
 
     from hermes_cli import goals
+    from hermes_state import SessionDB
 
-    goals._DB_CACHE.clear()
+    db = SessionDB()
+    goals._DB_CACHE[str(home)] = db
     yield home
     goals._DB_CACHE.clear()
 

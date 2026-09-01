@@ -160,11 +160,13 @@ def tunnel(conn, upstream):
     sockets = [conn, upstream]
     while True:
         try:
-            readable, _, exceptional = select.select(sockets, [], sockets, UPSTREAM_TIMEOUT_SECONDS)
+            readable, _, exceptional = select.select(sockets, [], sockets, 1.0)
         except (ValueError, OSError):
             break
-        if exceptional or not readable:
+        if exceptional:
             break
+        if not readable:
+            continue
         for s in readable:
             other = upstream if s is conn else conn
             try:
