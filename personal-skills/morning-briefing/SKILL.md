@@ -155,6 +155,15 @@ suppresses the Telegram message.
 - **Always use a cron job** so each morning briefing runs in its own fresh session. Manually requesting briefings in a persistent conversation causes the session to grow across days until compaction breaks it.
 - **Finding the absolute path of scripts:** If running outside of the standard cron/launchd environment where `$SKILL_DIR` is not set, inspect the `skill_dir` field returned by the `skill_view` tool. It provides the absolute path to the skill's root folder (e.g., `/Users/hodgesz/VsCodeProjects/hermes-agent/personal-skills/morning-briefing`), which can be used to construct the correct absolute path to run `scripts/morning_data.py`.
 - **Summer League and Off-season Sports Queries:** During the off-season, traditional sports coverage is sparse. However, NBA Summer League is highly active in July. Always search with highly specific terms like `Denver Nuggets NBA Summer League schedule July 2026 score` rather than generic team queries to retrieve active game times and box scores instead of outdated regular-season stats.
+- **wttr.in geocoding misresolves bare city names.** Passing just "Denver"
+  (or any percent-encoded comma like "Denver%2CCO") can return a wrong
+  nearest_area — e.g. the tiny community of Mountain View, CO
+  (39.774,-105.055) instead of Denver. Fixed by making `DEFAULT_LOCATION`
+  explicit coordinates (`39.7392,-104.9903`) and sending the location raw
+  (not `urllib.parse.quote`-encoded), since wttr.in reads an encoded comma
+  as a different place. If the script ever reports a surprising
+  `weather.location`, check it isn't a geocode slip rather than trusting the
+  temps.
 - If you see `⟳ compacting context…` in the failure message, the root cause is almost certainly a stale long-running session, not a model or API issue.
 - **Watchdog false alerts after Mac sleep/wake (root cause: launchd vs Hermes cron).** When watchdogs run as Hermes cron jobs (every 10m), they have no awareness of Mac sleep/wake state. After wake, the network stack takes ~30–60s to recover — Bedrock DNS fails, producing `BedrockException: Bedrock is unable to process your request` or `Cannot connect to host … nodename nor servname provided`. These fire as real alerts before the network is up. **The correct fix is to run watchdogs as launchd agents** (using `StartInterval`), not Hermes cron — launchd's timer is OS-managed and respects sleep/wake cycles, so it won't fire blindly into a not-yet-awake network. See `references/infrastructure.md` for current topology.
 - **"Bedrock is unable to process" ≠ Bedrock outage.** Before blaming AWS, check: (1) did the Mac just wake from sleep? (2) are the IAM static credentials in `~/.aws/credentials [default]` valid? The LiteLLM proxy uses static IAM keys — not SSO — so SSO expiry errors from `aws sts get-caller-identity` are irrelevant noise.

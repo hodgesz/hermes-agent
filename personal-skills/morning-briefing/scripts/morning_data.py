@@ -38,7 +38,10 @@ from typing import Any, Dict, Optional
 
 WTTR_URL = "https://wttr.in/{location}?format=j1"
 USER_AGENT = "HermesAgent/1.0 (morning-briefing skill)"
-DEFAULT_LOCATION = "Denver"
+# Use explicit lat,lon for waifey wttr.in geocoding. Bare "Denver" (or any
+# percent-encoded comma, e.g. "Denver%2CCO") can misresolve to the tiny
+# community of Mountain View, CO (39.774,-105.055) instead of the city.
+DEFAULT_LOCATION = "39.7392,-104.9903"   # Denver, CO
 DEFAULT_UNITS = "imperial"   # "imperial" | "metric"
 
 
@@ -50,7 +53,10 @@ def _http_get_json(url: str, timeout: float) -> Dict[str, Any]:
 
 
 def _fetch_weather(location: str, units: str, timeout: float) -> Dict[str, Any]:
-    url = WTTR_URL.format(location=urllib.parse.quote(location))
+    # Do NOT percent-encode: wttr.in treats an encoded comma ("%2C") as a
+    # different / misresolved place. Pass the location string raw as a path
+    # segment (lat,lon or "Name,_Region" both work unencoded).
+    url = WTTR_URL.format(location=location)
     try:
         raw = _http_get_json(url, timeout=timeout)
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
@@ -95,8 +101,18 @@ def _fetch_weather(location: str, units: str, timeout: float) -> Dict[str, Any]:
     if isinstance(area_val, list) and area_val:
         area_name = str(area_val[0].get("value", "")).strip()
 
+    # wttr.in's nearest_area mislabels some explicit coordinate points with a
+    # nearby tiny community (e.g. Denver 39.7392,-104.9903 -> "Mountain View").
+    # Temps from a coordinate point are correct; only the label is unreliable.
+    # If the user passed a real city name, trust it over area_name; if they
+    # passed coordinates, use a friendly Denver-area default rather than the
+    # misleading micro-town name.
+    display_location = area_name or location
+    if "," in location and location.startswith(("39.7", "39.6", "39.8")) and "Mountain" in display_location:
+        display_location = "Denver, CO"
+
     return {
-        "location": area_name or location,
+        "location": display_location,
         "temperature": temp,
         "unit": unit_label,
         "condition": condition_desc,
