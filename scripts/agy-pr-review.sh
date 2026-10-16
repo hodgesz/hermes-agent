@@ -24,7 +24,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help) usage; exit 0 ;;
     --local-only) LOCAL_ONLY=1 ;;
-    --model) [[ $# -ge 2 ]] || { echo "error: --model requires a value" >&2; exit 2; }; MODEL="$2"; shift ;;
+    --model) [[ $# -ge 2 && -n "$2" ]] || { echo "error: --model requires a non-empty value" >&2; exit 2; }; MODEL="$2"; shift ;;
     -*) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
     *)
       if [[ -n "$PR" ]]; then

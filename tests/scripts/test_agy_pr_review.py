@@ -24,9 +24,11 @@ def test_agy_pr_review_invalid_option():
 
 
 def test_agy_pr_review_missing_model_arg():
-    """Verify that --model without an argument exits with code 2."""
-    res = subprocess.run([str(SCRIPT), "--model"], capture_output=True, text=True)
-    assert res.returncode == 2
+    """Verify that --model without an argument or with an empty string exits with code 2."""
+    res1 = subprocess.run([str(SCRIPT), "--model"], capture_output=True, text=True)
+    assert res1.returncode == 2
+    res2 = subprocess.run([str(SCRIPT), "--model", ""], capture_output=True, text=True)
+    assert res2.returncode == 2
 
 
 def test_agy_pr_review_invalid_pr_number():
@@ -75,6 +77,7 @@ def test_agy_pr_review_valid_model_flag_with_help():
 def test_agy_pr_review_missing_pr_no_branch_pr():
     """Verify that omitting a PR number when no branch PR is found exits with code 1."""
     env = os.environ.copy()
+    env.pop("CI", None)
     env["GH_REPO"] = "nonexistent/repo-xyz-99999"
     res = subprocess.run([str(SCRIPT), "--local-only"], capture_output=True, text=True, env=env)
     assert res.returncode == 1
