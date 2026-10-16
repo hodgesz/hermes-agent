@@ -53,12 +53,12 @@ gh auth status >/dev/null 2>&1 || { echo "error: gh is not authenticated (run: g
 
 # Fork checkouts have several remotes; pin the repo so every gh call the agent makes agrees.
 if [[ -z "${GH_REPO:-}" ]]; then
-  GH_REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)" || true
+  GH_REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || gh repo set-default --view 2>/dev/null)" || true
   [[ -n "$GH_REPO" ]] && export GH_REPO
 fi
 
 if [[ -z "$PR" ]]; then
-  PR="$(gh pr view --json number -q .number 2>/dev/null)" || {
+  PR="$(gh pr view ${GH_REPO:+-R "$GH_REPO"} --json number -q .number 2>/dev/null)" || {
     echo "error: no PR number given and no open PR for the current branch" >&2; exit 1; }
 fi
 [[ "$PR" =~ ^[0-9]+$ ]] || { echo "error: invalid PR number: $PR" >&2; exit 2; }
@@ -66,7 +66,7 @@ fi
 if [[ $LOCAL_ONLY -eq 1 ]]; then
   MODE="Local-only mode: print the full review to stdout. Do NOT post anything to GitHub."
 else
-  MODE="Post the review with 'gh pr review $PR --comment -b <body>'. Never approve or merge."
+  MODE="Post the review with 'gh pr review $PR ${GH_REPO:+-R "$GH_REPO"} --comment -b <body>'. Never approve or merge."
 fi
 
 # Review in a throwaway worktree of the PR head so the caller's checkout is never touched.
@@ -77,18 +77,18 @@ OUT="$(mktemp)"; TESTLOG="$(mktemp)"
 cleanup() { git -C "$TOP" worktree remove --force "$WT" >/dev/null 2>&1 || true; rm -rf "$WT" "$OUT" "$TESTLOG"; }
 trap cleanup EXIT
 
-REPO_URL="$(gh repo view --json url -q .url)"
+REPO_URL="$(gh repo view ${GH_REPO:+-R "$GH_REPO"} --json url -q .url)"
 git -C "$TOP" fetch -q "$REPO_URL" "pull/$PR/head"
 git -C "$TOP" worktree add -q --detach "$WT" FETCH_HEAD
 [[ -d "$TOP/.venv" ]] && ln -s "$TOP/.venv" "$WT/.venv"
 
 TEST_FILES=()
 while IFS= read -r f; do [[ -f "$WT/$f" ]] && TEST_FILES+=("$f"); done \
-  < <(gh pr diff "$PR" --name-only | grep -E '^tests/.*\.py$' || true)
+  < <(gh pr diff "$PR" ${GH_REPO:+-R "$GH_REPO"} --name-only | grep -E '^tests/.*\.py$' || true)
 
 if [[ ${#TEST_FILES[@]} -gt 0 && -x "$WT/scripts/run_tests.sh" ]]; then
   echo "Running ${#TEST_FILES[@]} changed test file(s)..." >&2
-  (cd "$WT" && perl -e 'alarm 600; exec @ARGV' scripts/run_tests.sh "${TEST_FILES[@]}") >"$TESTLOG" 2>&1 \
+  (cd "$WT" && PYTHONPATH="$WT${PYTHONPATH:+:$PYTHONPATH}" perl -e 'alarm 600; exec @ARGV' scripts/run_tests.sh "${TEST_FILES[@]}") >"$TESTLOG" 2>&1 \
     && TEST_STATUS="PASSED" || TEST_STATUS="FAILED or timed out"
   TEST_SUMMARY="Test run harness result for ${TEST_FILES[*]}: $TEST_STATUS. Last lines:
 $(tail -n 40 "$TESTLOG")"

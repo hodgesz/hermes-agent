@@ -15,9 +15,8 @@ Review the pull request whose number is given in the prompt (`<PR_NUMBER>`). If 
    - `gh pr diff <PR_NUMBER>`
 2. **Read context.** Open the modified files beyond the diff hunks. Trace callers and callees
    across the codebase (search for the changed symbols) to catch broken contracts, schema changes,
-   or missed sibling call paths. Use the built-in `grep_search`, `find_by_name`, and `view_file`
-   tools for this, not shell `grep`/`find`/`cat`: headless runs auto-deny shell commands that
-   are not on the permissions allowlist.
+   or missed sibling call paths. Prefer built-in codebase search and file viewing tools
+   (such as `grep_search`, `find_by_name`, and `view_file`) to inspect context and dependencies.
 3. **Verify behavior.** If the prompt already contains test results from the harness, use them and
    do not re-run tests. Otherwise: Run the relevant local tests for the modified modules (`pytest`,
    `npm test`, or `go test`, whichever matches). In this repo prefer `scripts/run_tests.sh`.

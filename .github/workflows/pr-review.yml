@@ -32,7 +32,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: pr-review-${{ github.event.pull_request.number || github.ref }}
+  group: pr-review-${{ github.event.pull_request.number || inputs.pr_number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -64,18 +64,21 @@ jobs:
 
       - name: Install Antigravity CLI
         run: |
-          curl -fsSL https://antigravity.google/cli/install.sh | bash
+          curl -fsSL https://antigravity.google/cli/install.sh -o /tmp/install-agy.sh
+          bash /tmp/install-agy.sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
+          rm -f /tmp/install-agy.sh
 
       - name: Execute PR Review
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           AGY_PR_REVIEW_MODEL: ${{ inputs.model || 'gemini-3.8-flash-high' }}
+          PR_NUM: ${{ github.event.pull_request.number || inputs.pr_number }}
+          LOCAL_ONLY: ${{ inputs.local_only }}
         run: |
-          PR_NUM="${{ github.event.pull_request.number || inputs.pr_number }}"
           FLAGS=()
-          if [[ "${{ inputs.local_only }}" == "true" ]]; then
+          if [[ "$LOCAL_ONLY" == "true" ]]; then
             FLAGS+=("--local-only")
           fi
           ./scripts/agy-pr-review.sh "${FLAGS[@]}" "$PR_NUM"
