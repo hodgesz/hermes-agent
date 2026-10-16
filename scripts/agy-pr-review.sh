@@ -83,8 +83,8 @@ fi
 TOP="$(git rev-parse --show-toplevel)"
 WT="$(mktemp -d)"
 OUT="$(mktemp)"; TESTLOG="$(mktemp)"
-cleanup() { git -C "$TOP" worktree remove --force "$WT" >/dev/null 2>&1 || true; rm -rf "$WT" "$OUT" "$TESTLOG"; }
-trap cleanup EXIT
+cleanup() { git -C "$TOP" worktree remove --force "$WT" >/dev/null 2>&1 || true; git -C "$TOP" worktree prune >/dev/null 2>&1 || true; rm -rf "$WT" "$OUT" "$TESTLOG"; }
+trap cleanup EXIT INT TERM
 
 REPO_URL="$(gh repo view ${GH_REPO:+"$GH_REPO"} --json url -q .url)"
 git -C "$TOP" fetch -q "$REPO_URL" "pull/$PR/head"
@@ -101,9 +101,14 @@ while IFS= read -r f; do [[ -f "$WT/$f" ]] && TEST_FILES+=("$f"); done \
   < <(gh pr diff "$PR" ${GH_REPO:+-R "$GH_REPO"} --name-only | grep -E '^tests/.*\.py$' || true)
 
 if [[ ${#TEST_FILES[@]} -gt 0 ]]; then
-  if [[ -x "$TOP/scripts/run_tests.sh" ]]; then
+  RUN_TESTS="$WT/scripts/run_tests.sh"
+  if [[ ! -x "$RUN_TESTS" && -x "$TOP/scripts/run_tests.sh" ]]; then
+    mkdir -p "$WT/scripts"
+    cp "$TOP/scripts/run_tests.sh" "$TOP/scripts/run_tests_parallel.py" "$WT/scripts/"
+  fi
+  if [[ -x "$RUN_TESTS" ]]; then
     echo "Running ${#TEST_FILES[@]} changed test file(s)..." >&2
-    (cd "$WT" && PYTHONPATH="$WT${PYTHONPATH:+:$PYTHONPATH}" env -u GEMINI_API_KEY -u GITHUB_TOKEN -u GH_TOKEN perl -e 'alarm 600; exec @ARGV' "$TOP/scripts/run_tests.sh" "${TEST_FILES[@]}") >"$TESTLOG" 2>&1 \
+    (cd "$WT" && env -u GEMINI_API_KEY -u GITHUB_TOKEN -u GH_TOKEN perl -e 'alarm 600; exec @ARGV' "$RUN_TESTS" "${TEST_FILES[@]}") >"$TESTLOG" 2>&1 \
       && TEST_STATUS="PASSED" || TEST_STATUS="FAILED or timed out"
     TEST_SUMMARY="Test run harness result for ${TEST_FILES[*]}: $TEST_STATUS. Last lines:
 $(tail -n 40 "$TESTLOG")"
