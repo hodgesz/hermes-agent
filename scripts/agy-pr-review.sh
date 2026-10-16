@@ -57,7 +57,7 @@ if [[ -n "${CI:-}" && -z "${GEMINI_API_KEY:-}" ]]; then
   exit 0
 fi
 
-for bin in gh agy perl; do
+for bin in git gh agy perl; do
   command -v "$bin" >/dev/null || { echo "error: $bin not found in PATH" >&2; exit 1; }
 done
 
@@ -109,9 +109,16 @@ git -C "$TOP" worktree add -q --detach "$WT" FETCH_HEAD
 [[ -d "$TOP/.venv" ]] && ln -sfn "$TOP/.venv" "$WT/.venv"
 [[ -d "$TOP/venv" ]] && ln -sfn "$TOP/venv" "$WT/venv"
 # Always enforce the trusted pr-review skill from the base repo so PR branches cannot tamper with it.
-if [[ -d "$TOP/.agents/skills/pr-review" ]]; then
+BASE_REF="${GITHUB_BASE_REF:-main}"
+rm -rf "$WT/.agent/skills/pr-review" "$WT/skills/pr-review" "$WT/.agents/skills/pr-review"
+if git -C "$TOP" cat-file -e "origin/${BASE_REF}:.agents/skills/pr-review/SKILL.md" 2>/dev/null; then
   mkdir -p "$WT/.agents/skills"
-  rm -rf "$WT/.agents/skills/pr-review"
+  git -C "$TOP" archive "origin/${BASE_REF}" .agents/skills/pr-review | tar -x -C "$WT"
+elif git -C "$TOP" cat-file -e "${BASE_REF}:.agents/skills/pr-review/SKILL.md" 2>/dev/null; then
+  mkdir -p "$WT/.agents/skills"
+  git -C "$TOP" archive "${BASE_REF}" .agents/skills/pr-review | tar -x -C "$WT"
+elif [[ -d "$TOP/.agents/skills/pr-review" ]]; then
+  mkdir -p "$WT/.agents/skills"
   ln -sfn "$TOP/.agents/skills/pr-review" "$WT/.agents/skills/pr-review"
 fi
 

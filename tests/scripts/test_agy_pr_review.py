@@ -71,3 +71,13 @@ def test_agy_pr_review_valid_model_flag_with_help():
     assert res.returncode == 0
     assert "Usage:" in res.stdout
 
+
+def test_agy_pr_review_missing_pr_no_branch_pr():
+    """Verify that omitting a PR number when no branch PR is found exits with code 1."""
+    env = os.environ.copy()
+    env["GH_REPO"] = "nonexistent/repo-xyz-99999"
+    res = subprocess.run([str(SCRIPT), "--local-only"], capture_output=True, text=True, env=env)
+    assert res.returncode == 1
+    assert "no PR number given and no open PR for the current branch" in res.stderr
+
+
