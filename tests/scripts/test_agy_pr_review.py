@@ -31,7 +31,9 @@ def test_agy_pr_review_missing_model_arg():
 
 def test_agy_pr_review_invalid_pr_number():
     """Verify that a non-numeric PR number returns code 2."""
-    res = subprocess.run([str(SCRIPT), "--local-only", "invalid_pr_num"], capture_output=True, text=True)
+    env = os.environ.copy()
+    env.pop("CI", None)
+    res = subprocess.run([str(SCRIPT), "--local-only", "invalid_pr_num"], capture_output=True, text=True, env=env)
     assert res.returncode == 2
     assert "invalid PR number" in res.stderr
 

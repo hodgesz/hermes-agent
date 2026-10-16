@@ -31,6 +31,11 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+if [[ -n "$PR" ]]; then
+  PR="${PR#\#}"
+  [[ "$PR" =~ ^[0-9]+$ ]] || { echo "error: invalid PR number: $PR" >&2; exit 2; }
+fi
+
 # Bridge GitHub Actions environment variables if present.
 if [[ -z "${GH_TOKEN:-}" && -n "${GITHUB_TOKEN:-}" ]]; then
   export GH_TOKEN="$GITHUB_TOKEN"
@@ -53,10 +58,13 @@ gh auth status >/dev/null 2>&1 || { echo "error: gh is not authenticated (run: g
 
 # Fork checkouts have several remotes; pin the repo so every gh call the agent makes agrees.
 if [[ -z "${GH_REPO:-}" ]]; then
-  GH_REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null \
-    || gh repo set-default --view 2>/dev/null \
-    || git remote get-url origin 2>/dev/null | sed -E 's#^.*github\.com[:/]([^/]+/[^/.]+)(\.git)?$#\1#' \
-    || true)"
+  GH_REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
+  if [[ -z "$GH_REPO" ]]; then
+    GH_REPO="$(gh repo set-default --view 2>/dev/null || true)"
+  fi
+  if [[ -z "$GH_REPO" ]]; then
+    GH_REPO="$(git remote get-url origin 2>/dev/null | sed -E 's#^.*github\.com[:/]([^/]+/[^/.]+)(\.git)?$#\1#' || true)"
+  fi
   [[ -n "$GH_REPO" ]] && export GH_REPO
 fi
 
@@ -68,9 +76,9 @@ fi
 if [[ -z "$PR" ]]; then
   PR="$(gh pr view ${GH_REPO:+-R "$GH_REPO"} --json number -q .number 2>/dev/null)" || {
     echo "error: no PR number given and no open PR for the current branch" >&2; exit 1; }
+  PR="${PR#\#}"
+  [[ "$PR" =~ ^[0-9]+$ ]] || { echo "error: invalid PR number: $PR" >&2; exit 2; }
 fi
-PR="${PR#\#}"
-[[ "$PR" =~ ^[0-9]+$ ]] || { echo "error: invalid PR number: $PR" >&2; exit 2; }
 
 if [[ $LOCAL_ONLY -eq 1 ]]; then
   MODE="Local-only mode: print the full review to stdout. Do NOT post anything to GitHub."
