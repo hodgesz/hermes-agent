@@ -13,12 +13,17 @@
 set -euo pipefail
 
 HERMES_REPO="/Users/hodgesz/VsCodeProjects/hermes-agent"
+HERMES_BIN="${HERMES_REPO}/.hermes/bin/hermes"
 HERMES_PY="${HERMES_REPO}/.venv/bin/python"
 HERMES_CLI="${HERMES_REPO}/hermes"
 STATUS_DIR="/tmp"  # no-tmp: ok — macos launchd legacy status path
 
-if [[ ! -x "$HERMES_PY" ]]; then
-  echo "hermes venv python missing at $HERMES_PY" >&2
+if [[ -x "$HERMES_BIN" ]]; then
+  HERMES_CMD=("$HERMES_BIN")
+elif [[ -x "$HERMES_PY" && -f "$HERMES_CLI" ]]; then
+  HERMES_CMD=("$HERMES_PY" "$HERMES_CLI")
+else
+  echo "hermes launcher missing at $HERMES_BIN and $HERMES_PY" >&2
   exit 2
 fi
 
@@ -119,7 +124,7 @@ RETRY_DELAY=60
 RESPONSE=""
 BRIEFING_STATUS=""
 for attempt in $(seq 1 $MAX_ATTEMPTS); do
-  RESPONSE=$(cd "$HERMES_REPO" && "$HERMES_PY" "$HERMES_CLI" \
+  RESPONSE=$(cd "$HERMES_REPO" && "${HERMES_CMD[@]}" \
     -z "$PROMPT" \
     -s "$SKILL" 2>&1 || true)
 

@@ -24,14 +24,14 @@ set -euo pipefail
 # Legacy script-based jobs, as "job_name:max_age_hours" pairs.
 # (macOS ships bash 3.2 — no `declare -A`, so plain parallel arrays.)
 # Add entries like "adhd-checkin:72" here when re-enabling those plists.
+# morning-briefing runs daily via launchd at 7:05 -> 25h grace.
 LEGACY_JOBS=(
+  "morning-briefing:25"
 )
 
 # hermes cron jobs, as "job_name:max_age_hours" pairs. Name must match the
 # `name` field in ~/.hermes/cron/jobs.json exactly.
-# morning-briefing runs daily at 7:05 → 25h grace.
 CRON_JOBS=(
-  "morning-briefing:25"
 )
 
 QUIET=0
@@ -53,6 +53,12 @@ fi
 
 FAILURES=()
 
+log_msg() {
+  if [[ $QUIET -eq 0 ]]; then
+    echo "$@"
+  fi
+}
+
 check_job() {
   # Legacy path — launchd+script jobs that write /tmp/hermes-<job>-status.json.
   local job="$1"
@@ -62,7 +68,7 @@ check_job() {
   if [[ ! -f "$status_file" ]]; then
     # Not-yet-run is not a failure — could be a fresh install or a
     # not-yet-triggered weekly. Skip rather than alerting.
-    [[ $QUIET -eq 0 ]] && echo "skip  ${job}: no status file yet"
+    log_msg "skip  ${job}: no status file yet"
     return
   fi
 
@@ -82,21 +88,21 @@ check_job() {
 
   if [[ "$age_hours" -gt "$max_hours" ]]; then
     FAILURES+=("${job}: stale (${age_hours}h old, limit ${max_hours}h)")
-    [[ $QUIET -eq 0 ]] && echo "FAIL  ${job}: stale ${age_hours}h"
+    log_msg "FAIL  ${job}: stale ${age_hours}h"
     return
   fi
 
   case "$status" in
     ok)
-      [[ $QUIET -eq 0 ]] && echo "ok    ${job}: last run ${timestamp}"
+      log_msg "ok    ${job}: last run ${timestamp}"
       ;;
     error:*)
       FAILURES+=("${job}: ${status} at ${timestamp}")
-      [[ $QUIET -eq 0 ]] && echo "FAIL  ${job}: ${status}"
+      log_msg "FAIL  ${job}: ${status}"
       ;;
     *)
       FAILURES+=("${job}: unknown status '${status}'")
-      [[ $QUIET -eq 0 ]] && echo "FAIL  ${job}: unknown status"
+      log_msg "FAIL  ${job}: unknown status"
       ;;
   esac
 }
@@ -111,7 +117,7 @@ check_cron_job() {
 
   if [[ ! -f "$jobs_json" ]]; then
     FAILURES+=("${job_name}: no ~/.hermes/cron/jobs.json (is hermes cron set up?)")
-    [[ $QUIET -eq 0 ]] && echo "FAIL  ${job_name}: no cron jobs.json"
+    log_msg "FAIL  ${job_name}: no cron jobs.json"
     return
   fi
 
@@ -133,14 +139,14 @@ for job in data.get("jobs", []):
 
   if [[ -z "$job_id" ]]; then
     FAILURES+=("${job_name}: no matching enabled cron job in jobs.json")
-    [[ $QUIET -eq 0 ]] && echo "FAIL  ${job_name}: no matching enabled cron job"
+    log_msg "FAIL  ${job_name}: no matching enabled cron job"
     return
   fi
 
   local out_dir="${output_root}/${job_id}"
   if [[ ! -d "$out_dir" ]]; then
     # Not-yet-run is not a failure — could be a freshly-created job.
-    [[ $QUIET -eq 0 ]] && echo "skip  ${job_name}: no cron output dir yet (id=${job_id})"
+    log_msg "skip  ${job_name}: no cron output dir yet (id=${job_id})"
     return
   fi
 
@@ -148,7 +154,7 @@ for job in data.get("jobs", []):
   local newest
   newest=$(ls -t "$out_dir" 2>/dev/null | head -1)
   if [[ -z "$newest" ]]; then
-    [[ $QUIET -eq 0 ]] && echo "skip  ${job_name}: cron output dir empty yet (id=${job_id})"
+    log_msg "skip  ${job_name}: cron output dir empty yet (id=${job_id})"
     return
   fi
 
@@ -160,7 +166,7 @@ for job in data.get("jobs", []):
 
   if [[ "$age_hours" -gt "$max_hours" ]]; then
     FAILURES+=("${job_name}: stale (${age_hours}h old, limit ${max_hours}h, id=${job_id})")
-    [[ $QUIET -eq 0 ]] && echo "FAIL  ${job_name}: stale ${age_hours}h (id=${job_id})"
+    log_msg "FAIL  ${job_name}: stale ${age_hours}h (id=${job_id})"
     return
   fi
 
@@ -169,11 +175,11 @@ for job in data.get("jobs", []):
   # cron/scheduler.py.
   if head -1 "$file_path" | grep -q "(FAILED)"; then
     FAILURES+=("${job_name}: last run FAILED (file=${newest}, id=${job_id})")
-    [[ $QUIET -eq 0 ]] && echo "FAIL  ${job_name}: last run FAILED (${newest})"
+    log_msg "FAIL  ${job_name}: last run FAILED (${newest})"
     return
   fi
 
-  [[ $QUIET -eq 0 ]] && echo "ok    ${job_name}: last run ${newest} (${age_hours}h ago, id=${job_id})"
+  log_msg "ok    ${job_name}: last run ${newest} (${age_hours}h ago, id=${job_id})"
 }
 
 for entry in ${LEGACY_JOBS[@]+"${LEGACY_JOBS[@]}"}; do
