@@ -46,3 +46,28 @@ def test_agy_pr_review_ci_skips_without_gemini_key():
     res = subprocess.run([str(SCRIPT), "--local-only", "123"], capture_output=True, text=True, env=env)
     assert res.returncode == 0
     assert "GEMINI_API_KEY is not configured" in res.stderr
+
+
+def test_agy_pr_review_extra_positional_arg():
+    """Verify that multiple positional arguments return code 2."""
+    res = subprocess.run([str(SCRIPT), "123", "extra_arg"], capture_output=True, text=True)
+    assert res.returncode == 2
+    assert "unexpected extra argument" in res.stderr
+
+
+def test_agy_pr_review_hash_pr_number():
+    """Verify that a PR number with leading '#' is correctly parsed."""
+    env = os.environ.copy()
+    env["CI"] = "1"
+    env.pop("GEMINI_API_KEY", None)
+    res = subprocess.run([str(SCRIPT), "--local-only", "#123"], capture_output=True, text=True, env=env)
+    assert res.returncode == 0
+    assert "GEMINI_API_KEY is not configured" in res.stderr
+
+
+def test_agy_pr_review_valid_model_flag_with_help():
+    """Verify that passing valid --model before --help exits with 0."""
+    res = subprocess.run([str(SCRIPT), "--model", "gemini-3.8-flash-high", "--help"], capture_output=True, text=True)
+    assert res.returncode == 0
+    assert "Usage:" in res.stdout
+

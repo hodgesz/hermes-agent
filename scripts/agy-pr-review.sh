@@ -26,7 +26,14 @@ while [[ $# -gt 0 ]]; do
     --local-only) LOCAL_ONLY=1 ;;
     --model) [[ $# -ge 2 ]] || { echo "error: --model requires a value" >&2; exit 2; }; MODEL="$2"; shift ;;
     -*) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
-    *) PR="$1" ;;
+    *)
+      if [[ -n "$PR" ]]; then
+        echo "error: unexpected extra argument: $1" >&2
+        usage >&2
+        exit 2
+      fi
+      PR="$1"
+      ;;
   esac
   shift
 done
@@ -77,7 +84,7 @@ if [[ -z "$PR" ]]; then
   PR="$(gh pr view ${GH_REPO:+-R "$GH_REPO"} --json number -q .number 2>/dev/null)" || {
     echo "error: no PR number given and no open PR for the current branch" >&2; exit 1; }
   PR="${PR#\#}"
-  [[ "$PR" =~ ^[0-9]+$ ]] || { echo "error: invalid PR number: $PR" >&2; exit 2; }
+  [[ -n "$PR" && "$PR" =~ ^[0-9]+$ ]] || { echo "error: invalid or missing PR number: ${PR:-<empty>}" >&2; exit 2; }
 fi
 
 if [[ $LOCAL_ONLY -eq 1 ]]; then
