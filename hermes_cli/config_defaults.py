@@ -380,15 +380,15 @@ DEFAULT_CONFIG = {
         # default for images whose entrypoints must start as root (e.g. the bundled Hermes image,
         # which drops to `hermes` via s6-setuidgid). When on, SETUID/SETGID caps are omitted.
         "docker_run_as_host_user": False,
-        # Snap-packaged Docker under AppArmor (Ubuntu cloud images; LP#1908448) refuses to exec
-        # anything under `--init` or `--security-opt no-new-privileges` ("operation not
-        # permitted"). True drops those two flags; every other hardening stays. See #9730.
+        # Snap-packaged Docker under AppArmor compatibility (#9730).
         "docker_snap_compat": False,
         # Trusted profiles sharing one Docker container identity; empty = per-profile boundary.
         "docker_shared_container_key": "",
-        # SSH: carry exported env vars between commands (cwd always carries). false = every command
-        # starts from the login env, profile functions included. Local: TERMINAL_LOCAL_PERSISTENT.
+        # SSH: carry exported env vars between commands (cwd always carries).
         "persistent_shell": True,
+        # Docker security profile ("standard" or "hardened" with read-only root, user, seccomp).
+        "docker_security_profile": "standard", "docker_read_only_root": False, "docker_user": "",
+        "docker_seccomp_profile": "", "docker_writable_paths": ["/workspace", "/tmp", "/var/tmp"],  # no-tmp: ok — container tmpfs defaults
     },
 
     "web": {
@@ -1791,10 +1791,10 @@ DEFAULT_CONFIG = {
         # banner. Add via `hermes doctor --ack <id>`; remove by editing the list. Catalog:
         # hermes_cli/security_advisories.py.
         "acked_advisories": [],
-        # Lazy-install opt-in backend packages from PyPI when a backend that needs them is first
-        # enabled (e.g. `elevenlabs`). False = require explicit pip install for everything beyond
-        # the base set (restricted/audited/air-gapped environments).
+        # Lazy-install opt-in backend packages from PyPI when a backend is enabled.
         "allow_lazy_installs": True,
+        # Network egress allowlist (see tools/network_policy.py).
+        "network_allowlist": {"enabled": False, "rules": [], "shared_files": [], "auto_allow_providers": True, "auto_allow_mcp": True},
     },
 
     "cron": {

@@ -2025,13 +2025,12 @@ def _bridge_terminal_config_to_env(_terminal_cfg: dict) -> None:
         "docker_shm_size": "TERMINAL_DOCKER_SHM_SIZE",
         "docker_mount_cwd_to_workspace": "TERMINAL_DOCKER_MOUNT_CWD_TO_WORKSPACE",
         "docker_network": "TERMINAL_DOCKER_NETWORK",
-        "docker_run_as_host_user": "TERMINAL_DOCKER_RUN_AS_HOST_USER",
-        "docker_snap_compat": "TERMINAL_DOCKER_SNAP_COMPAT",
-        "docker_persist_across_processes": "TERMINAL_DOCKER_PERSIST_ACROSS_PROCESSES",
-        "docker_shared_container_key": "TERMINAL_DOCKER_SHARED_CONTAINER_KEY",
-        "docker_orphan_reaper": "TERMINAL_DOCKER_ORPHAN_REAPER",
-        "sandbox_dir": "TERMINAL_SANDBOX_DIR",
-        "persistent_shell": "TERMINAL_PERSISTENT_SHELL"}
+        "docker_run_as_host_user": "TERMINAL_DOCKER_RUN_AS_HOST_USER", "docker_snap_compat": "TERMINAL_DOCKER_SNAP_COMPAT",
+        "docker_persist_across_processes": "TERMINAL_DOCKER_PERSIST_ACROSS_PROCESSES", "docker_shared_container_key": "TERMINAL_DOCKER_SHARED_CONTAINER_KEY",
+        "docker_orphan_reaper": "TERMINAL_DOCKER_ORPHAN_REAPER", "sandbox_dir": "TERMINAL_SANDBOX_DIR",
+        "docker_security_profile": "TERMINAL_DOCKER_SECURITY_PROFILE", "docker_read_only_root": "TERMINAL_DOCKER_READ_ONLY_ROOT",
+        "docker_user": "TERMINAL_DOCKER_USER", "docker_seccomp_profile": "TERMINAL_DOCKER_SECCOMP_PROFILE",
+        "docker_writable_paths": "TERMINAL_DOCKER_WRITABLE_PATHS", "persistent_shell": "TERMINAL_PERSISTENT_SHELL"}
     for _cfg_key, _env_var in _terminal_env_map.items():
         if _cfg_key not in _terminal_cfg:
             continue

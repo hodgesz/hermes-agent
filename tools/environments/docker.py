@@ -378,6 +378,11 @@ _S6_INIT_ENTRYPOINTS = ("/init", "/package/admin/s6-overlay/command/init")
 
 _NO_NEW_PRIVILEGES_ARGS = ["--security-opt", "no-new-privileges"]
 
+# Writable-path mounts that the existing writable_args block already creates,
+# so docker_writable_paths entries overlapping these don't generate duplicate
+# --tmpfs flags (which Docker rejects).
+_DEFAULT_WRITABLE_MOUNTS = {"/tmp", "/var/tmp", "/run", "/workspace", "/home", "/root"}  # no-tmp: ok — container mount points
+
 
 def _build_security_args(run_as_host_user: bool, run_exec: bool = False, snap_compat: bool = False) -> list[str]:
     """Security/cap/tmpfs args for the privilege mode; ``run_exec`` mounts /run exec for s6 images.
@@ -654,10 +659,20 @@ class DockerEnvironment(BaseEnvironment):
         shm_size: str = _DEFAULT_SHM_SIZE,
         shared_container_key: str = "",
         snap_compat: bool = False,
-        image_pinned: bool = False):
+        image_pinned: bool = False,
+        security_profile: str = "standard",
+        read_only_root: bool = False,
+        user: str = "",
+        seccomp_profile: str = "",
+        writable_paths: list[str] | None = None):
         if cwd == "~":
             cwd = "/root"
         super().__init__(cwd=cwd, timeout=timeout)
+        self.security_profile = security_profile
+        self.read_only_root = read_only_root
+        self.user = user
+        self.seccomp_profile = seccomp_profile
+        self.writable_paths = writable_paths
         self._persistent = persistent_filesystem
         self._persist_across_processes = persist_across_processes
         # Set by terminal_tool._create_environment for session-scoped containers
@@ -678,6 +693,15 @@ class DockerEnvironment(BaseEnvironment):
 
         _ensure_docker_available()
 
+        profile = (security_profile or "standard").strip().lower()
+        if profile not in ("standard", "hardened"):
+            logger.warning(
+                "Unknown docker_security_profile %r; falling back to 'standard'", security_profile
+            )
+            profile = "standard"
+        hardened = profile == "hardened"
+        effective_read_only = bool(hardened or read_only_root)
+
         resource_args = self._resource_args(image, cpu, memory, disk, network, shm_size, extra_args)
         volume_args, writable_args = self._mount_args(volumes, host_cwd, auto_mount_cwd, task_id)
         mount = getattr(self, "host_cwd_mount", None)
@@ -692,6 +716,8 @@ class DockerEnvironment(BaseEnvironment):
             self._egress_and_env_args(extra_args))
         volume_args.extend(egress_volume_args)
         user_args = _host_user_args(run_as_host_user)
+        if not user_args and hardened and user:
+            user_args = ["--user", user]
 
         # Resolved once so it works when /usr/local/bin is not in PATH (macOS services).
         self._docker_exe = find_docker() or "docker"
@@ -708,7 +734,38 @@ class DockerEnvironment(BaseEnvironment):
                 "skipping --init and mounting /run with exec.",
                 image)
         security_args = _build_security_args(
-            run_as_host_user and bool(user_args), run_exec=image_uses_s6_init, snap_compat=snap_compat)
+            bool(user_args), run_exec=image_uses_s6_init, snap_compat=snap_compat)
+        if effective_read_only:
+            security_args = security_args + ["--read-only"]
+
+        profile_args: list[str] = []
+        if hardened and seccomp_profile:
+            if os.path.isfile(seccomp_profile):
+                profile_args.extend(["--security-opt", f"seccomp={seccomp_profile}"])
+            else:
+                logger.warning(
+                    "docker_seccomp_profile %r not found; using Docker default seccomp",
+                    seccomp_profile,
+                )
+
+        extra_writable_args: list[str] = []
+        if effective_read_only and writable_paths:
+            existing_mount_targets = set(_DEFAULT_WRITABLE_MOUNTS)
+            for token in writable_args:
+                if ":" in token and token.startswith("/"):
+                    existing_mount_targets.add(token.split(":", 1)[0])
+            for path in writable_paths:
+                if not isinstance(path, str):
+                    continue
+                path = path.strip()
+                if not path or not path.startswith("/"):
+                    logger.warning("Ignoring docker_writable_paths entry %r (must be absolute)", path)
+                    continue
+                if path in existing_mount_targets:
+                    continue
+                extra_writable_args.extend(["--tmpfs", f"{path}:rw,nosuid,size=256m"])
+                existing_mount_targets.add(path)
+
         self._snap_compat = snap_compat
         if snap_compat:
             logger.warning(
@@ -717,7 +774,7 @@ class DockerEnvironment(BaseEnvironment):
         logger.info("Docker volume_args: %s", volume_args)
         # docker_extra_args go last so they can override defaults.
         all_run_args = (
-            security_args + user_args + writable_args + resource_args
+            security_args + user_args + profile_args + writable_args + extra_writable_args + resource_args
             + egress_host_args + volume_args + env_args + validated_extra)
         logger.info("Docker run_args: %s", all_run_args)
 

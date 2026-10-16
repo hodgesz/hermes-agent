@@ -597,6 +597,22 @@ class MCPServerTransportMixin:
         self._resolved_identity = _registration._identity_digest(inputs)
         url, headers = inputs
         logger.debug("MCP server '%s': connecting to %s", self.name, url)
+
+        # Network allowlist (deny-by-default) — block HTTP MCP servers whose
+        # host is not in the configured allowlist. Stdio transport is local
+        # and not checked here.
+        try:
+            from tools.network_policy import check_network_egress
+            _egress = check_network_egress(url)
+        except ImportError:
+            _egress = None
+        except Exception:
+            logger.exception("Failed to check network egress for MCP URL %s", url)
+            _egress = None
+        if _egress:
+            raise ConnectionError(
+                f"MCP server '{self.name}' URL denied by network allowlist: {_egress['message']}"
+            )
         self._http_rejection = {}  # last 4xx/5xx the owned client saw this attempt (recorder hook)
         # Seed MCP-Protocol-Version (user override wins) from the HANDSHAKE version, not the latest: a
         # 2026-07-28 header routes the handshake-era ``initialize()`` onto the envelope ladder, which rejects it.

@@ -130,6 +130,7 @@ env:
 jobs:
   pick-releases:
     name: Pick release tags
+    if: github.repository == 'NousResearch/hermes-agent' || github.event_name != 'schedule'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 5
     outputs:
@@ -142,12 +143,8 @@ jobs:
       - uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a  # v1
         with:
           ref: ${{ inputs.commit }}
-          filter: blob:none
+          fetch-depth: 0
           fetch-tags: true
-          sparse-checkout: |
-            scripts/sandbox/pick-release-tags.sh
-            scripts/releases/pick_tags.py
-          sparse-checkout-cone-mode: false
       - id: pick
         env:
           # Inputs never touch shell syntax directly: TAG_COUNT arrives via

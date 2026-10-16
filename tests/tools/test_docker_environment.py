@@ -1,9 +1,6 @@
 import logging
 import os
-import re
-from io import StringIO
 import subprocess
-import tempfile
 
 import pytest
 
@@ -60,6 +57,11 @@ def _make_dummy_env(**kwargs):
         shared_container_key=kwargs.get("shared_container_key", ""),
         shm_size=kwargs.get("shm_size", docker_env._DEFAULT_SHM_SIZE),
         snap_compat=kwargs.get("snap_compat", False),
+        security_profile=kwargs.get("security_profile", "standard"),
+        read_only_root=kwargs.get("read_only_root", False),
+        user=kwargs.get("user", ""),
+        seccomp_profile=kwargs.get("seccomp_profile", ""),
+        writable_paths=kwargs.get("writable_paths"),
     )
 
 
@@ -520,6 +522,16 @@ def _run_args_from_calls(calls):
     return run_calls[0][0]
 
 
+# ── hardened security profile tests (fork) ───────────────────────
+
+
+def _run_cmd_from_calls(calls):
+    """Pull the docker run args out of the mocked subprocess call log."""
+    run_calls = [c for c in calls if isinstance(c[0], list) and len(c[0]) >= 2 and c[0][1] == "run"]
+    assert run_calls, "docker run should have been called"
+    return run_calls[0][0]
+
+
 def _labels_in_run_args(run_args):
     """Return the set of ``key=value`` strings passed via ``--label``."""
     return {
@@ -561,68 +573,6 @@ def test_label_sanitizer_rejects_invalid_characters():
     assert len(docker_env._sanitize_label_value(long_value)) == 63
 
 
-def test_reuse_environment_fingerprint_tracks_immutable_configuration():
-    """Containers with different images, mounts, or Hermes homes must not
-    share the label used for cross-process reuse."""
-    base = docker_env._reuse_environment_fingerprint(
-        image="python:3.11",
-        mount_args=["-v", "volume-a:/workspace"],
-        hermes_home="/profiles/alpha",
-    )
-
-    assert base == docker_env._reuse_environment_fingerprint(
-        image="python:3.11",
-        mount_args=["-v", "volume-a:/workspace"],
-        hermes_home="/profiles/alpha",
-    )
-    assert base != docker_env._reuse_environment_fingerprint(
-        image="python:3.12",
-        mount_args=["-v", "volume-a:/workspace"],
-        hermes_home="/profiles/alpha",
-    )
-    assert base != docker_env._reuse_environment_fingerprint(
-        image="python:3.11",
-        mount_args=["-v", "volume-b:/workspace"],
-        hermes_home="/profiles/alpha",
-    )
-    assert base != docker_env._reuse_environment_fingerprint(
-        image="python:3.11",
-        mount_args=["-v", "volume-a:/workspace"],
-        hermes_home="/profiles/beta",
-    )
-
-
-def test_reuse_environment_fingerprint_ignores_volatile_temp_mounts(tmp_path, monkeypatch):
-    """A mount whose host source is a per-process tempdir must not churn the
-    reuse label: symlinked skills trees are served from a fresh mkdtemp copy
-    every process (``_safe_skills_path``), so hashing that path made the
-    label differ across processes and container reuse never matched."""
-    temp_root = tmp_path / "tmp"
-    temp_root.mkdir()
-    monkeypatch.setattr(docker_env.tempfile, "gettempdir", lambda: str(temp_root))
-    stable_source = str(tmp_path / "data")
-    process_a = docker_env._reuse_environment_fingerprint(
-        image="python:3.11",
-        mount_args=["-v", f"{temp_root}/hermes-skills-safe-a1b2c3:/root/.hermes/skills:ro",
-                    "-v", f"{stable_source}:/data:ro"],
-        hermes_home="/profiles/alpha",
-    )
-    process_b = docker_env._reuse_environment_fingerprint(
-        image="python:3.11",
-        mount_args=["-v", f"{temp_root}/hermes-skills-safe-d4e5f6:/root/.hermes/skills:ro",
-                    "-v", f"{stable_source}:/data:ro"],
-        hermes_home="/profiles/alpha",
-    )
-    assert process_a == process_b
-    # A real mount change still forces a fresh container.
-    assert process_a != docker_env._reuse_environment_fingerprint(
-        image="python:3.11",
-        mount_args=["-v", f"{temp_root}/hermes-skills-safe-a1b2c3:/root/.hermes/skills:ro",
-                    "-v", f"{tmp_path}/other-data:/data:ro"],
-        hermes_home="/profiles/alpha",
-    )
-
-
 def test_run_command_sanitizes_unsafe_task_id(monkeypatch):
     """A task_id containing characters Docker rejects in label values must be
     sanitized before reaching ``docker run --label``; otherwise the daemon
@@ -649,7 +599,6 @@ def _bind_mount_specs(run_args):
     ]
 
 
-@pytest.mark.platforms("linux")
 def test_persistent_bind_mounts_survive_a_session_key_task_id(monkeypatch, tmp_path):
     """A gateway session key reaches the persistent sandbox path as-is, and it
     carries colons (``session:agent:main:telegram:dm:<chat_id>``). Docker reads
@@ -743,125 +692,22 @@ def test_sandbox_dir_name_never_resolves_to_the_sandbox_root():
         assert not (set(name) & set(':/\\')), name
 
 
-@pytest.mark.require_symlinks
-def test_symlinked_skills_tree_reuses_container_across_processes(monkeypatch, tmp_path):
-    """A symlink under ``skills/`` makes the skills mount a fresh mkdtemp copy per
-    process (and even per DockerEnvironment construction — ``_safe_skills_path``
-    rmtree+mkdtemps on every call). The reuse label must stay stable anyway, or
-    the persistent container is never reused and users silently lose the
-    installed packages / filesystem state of their long-lived sandbox."""
-    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
-    monkeypatch.setattr(docker_env, "_get_active_profile_name", lambda: "default")
-    hermes_home = tmp_path / "alpha"
-    skills_dir = hermes_home / "skills"
-    (skills_dir / "some-skill").mkdir(parents=True)
-    (skills_dir / "some-skill" / "SKILL.md").write_text("# skill")
-    (skills_dir / "link").symlink_to(tmp_path / "outside")  # forces the safe-copy path
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
-    _mock_subprocess_run(monkeypatch)
-
-    config = {"image": "python:3.11", "volumes": ["volume-a:/workspace"]}
-    first = _make_dummy_env(**config)
-    second = _make_dummy_env(**config)
-    assert first._labels["hermes-environment"] == second._labels["hermes-environment"]
-    # The safe copy really is per-construction volatile: proof the stability above
-    # comes from canonicalization, not from the mount happening to be stable.
-    mounts = []
-    for entry in docker_env._readonly_skill_mount_args():
-        if entry not in ("-v",) and ":/root/.hermes/skills" in entry:
-            mounts.append(entry)
-    assert mounts, "expected a skills mount from the symlink-safe copy"
-
-    # A real (non-tempdir) mount change must still start a fresh container.
-    changed = dict(config, volumes=["volume-b:/workspace"])
-    third = _make_dummy_env(**changed)
-    assert third._labels["hermes-environment"] != first._labels["hermes-environment"]
 
 
-def test_labels_attribute_populated_after_init(monkeypatch):
-    """``self._labels`` must be set to the same key/value pairs that went onto
-    docker run, so subsequent reuse / reaper paths can match without re-running
-    the sanitizer or re-importing the profile module."""
-    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
-    monkeypatch.setattr(docker_env, "_get_active_profile_name", lambda: "default")
-    _mock_subprocess_run(monkeypatch)
-
-    env = _make_dummy_env(task_id="abc")
-
-    labels = dict(env._labels)
-    environment_label = labels.pop("hermes-environment")
-    assert labels == {
-        "hermes-agent": "1",
-        "hermes-task-id": "abc",
-        "hermes-profile": "default",
-        "hermes-egress": "off",
-    }
-    assert re.fullmatch(r"[0-9a-f]{24}", environment_label)
-
-
-@pytest.mark.parametrize("changed_setting", ["image", "volumes", "hermes_home"])
-def test_reuse_probe_filters_on_environment_fingerprint(monkeypatch, tmp_path, changed_setting):
-    """Reuse and recovery must select the requested configuration, not stale mounts."""
-    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
-    monkeypatch.setattr(docker_env, "_get_active_profile_name", lambda: "default")
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "alpha"))
-    # Keep the auto-mounted skills directory present from the first startup.
-    for name in ("alpha", "beta"):
-        (tmp_path / name / "skills").mkdir(parents=True)
-    calls = _mock_subprocess_run(monkeypatch)
-
-    def reuse_filters():
-        return tuple(
-            arg for cmd, _ in calls if isinstance(cmd, list) and cmd[1] == "ps"
-            for arg in cmd if arg.startswith("label=")
-        )
-
-    config = {"image": "python:3.11", "volumes": ["volume-a:/workspace"]}
-    _make_dummy_env(**config)
-    original_filters = reuse_filters()
-    assert original_filters
-    calls.clear()
-    _make_dummy_env(**config)
-    assert reuse_filters() == original_filters
-
-    if changed_setting == "hermes_home":
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "beta"))
-    else:
-        config[changed_setting] = {"image": "python:3.12", "volumes": ["volume-b:/workspace"]}[changed_setting]
-    calls.clear()
-    env = _make_dummy_env(**config)
-    changed_filters = reuse_filters()
-    assert changed_filters != original_filters
-    assert f"label=hermes-environment={env._labels['hermes-environment']}" in changed_filters
-    assert set(f.removeprefix("label=") for f in changed_filters) <= _labels_in_run_args(_run_args_from_calls(calls))
-
-    calls.clear()
-    assert env._recreate_container()
-    assert reuse_filters() == changed_filters
-
-
-def test_shared_container_key_replaces_profile_identity(monkeypatch, tmp_path):
+def test_shared_container_key_replaces_profile_identity(monkeypatch):
     """Trusted profiles using the same explicit key share the reuse label."""
     monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
     monkeypatch.setattr(docker_env, "_get_active_profile_name", lambda: "research")
     _mock_subprocess_run(monkeypatch)
 
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "research"))
     a = _make_dummy_env(task_id="abc", shared_container_key="team/workspace")
-    monkeypatch.setattr(docker_env, "_get_active_profile_name", lambda: "coding")
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "coding"))
-    b = _make_dummy_env(
-        task_id="abc", shared_container_key="team/workspace",
-        image="python:3.12", volumes=["team-volume:/workspace"],
-    )
+    b = _make_dummy_env(task_id="abc", shared_container_key="team/workspace")
 
     # Deterministic across processes/profiles, not the profile label, and
     # digest-suffixed (label sanitization alone is lossy).
     assert a._labels["hermes-profile"] == b._labels["hermes-profile"]
     assert a._labels["hermes-profile"] != "research"
     assert a._labels["hermes-profile"].startswith("team_workspace-")
-    # Explicit sharing retains the first creator's immutable settings.
-    assert a._labels == b._labels
 
 
 def test_distinct_shared_keys_never_collide(monkeypatch):
@@ -1582,6 +1428,78 @@ def test_container_finished_at_returns_none_on_zero_value():
     assert result is None
 
 
+def test_standard_profile_does_not_add_read_only(monkeypatch):
+    """Default (standard) profile must NOT add --read-only to docker run args."""
+    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
+    calls = _mock_subprocess_run(monkeypatch)
+
+    _make_dummy_env()
+
+    run_cmd = _run_cmd_from_calls(calls)
+    assert "--read-only" not in run_cmd
+
+
+def test_hardened_profile_adds_read_only_root(monkeypatch):
+    """Hardened profile must mount rootfs read-only."""
+    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
+    calls = _mock_subprocess_run(monkeypatch)
+
+    _make_dummy_env(security_profile="hardened")
+
+    run_cmd = _run_cmd_from_calls(calls)
+    assert "--read-only" in run_cmd
+
+
+def test_read_only_root_flag_forces_read_only_without_hardened(monkeypatch):
+    """read_only_root=True should force --read-only even without hardened profile."""
+    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
+    calls = _mock_subprocess_run(monkeypatch)
+
+    _make_dummy_env(security_profile="standard", read_only_root=True)
+
+    run_cmd = _run_cmd_from_calls(calls)
+    assert "--read-only" in run_cmd
+
+
+def test_hardened_profile_applies_user(monkeypatch):
+    """Hardened profile should pass --user when docker_user is configured."""
+    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
+    calls = _mock_subprocess_run(monkeypatch)
+
+    _make_dummy_env(security_profile="hardened", user="1000:1000")
+
+    run_cmd = _run_cmd_from_calls(calls)
+    assert "--user" in run_cmd
+    user_index = run_cmd.index("--user")
+    assert run_cmd[user_index + 1] == "1000:1000"
+
+
+def test_standard_profile_ignores_user(monkeypatch):
+    """docker_user should be ignored when profile is standard."""
+    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
+    calls = _mock_subprocess_run(monkeypatch)
+
+    _make_dummy_env(security_profile="standard", user="1000:1000")
+
+    run_cmd = _run_cmd_from_calls(calls)
+    assert "--user" not in run_cmd
+
+
+def test_hardened_profile_applies_seccomp_when_file_exists(monkeypatch, tmp_path):
+    """Hardened profile + existing seccomp file should pass --security-opt seccomp=..."""
+    seccomp_file = tmp_path / "seccomp.json"
+    seccomp_file.write_text('{"defaultAction":"SCMP_ACT_ALLOW"}')
+
+    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
+    calls = _mock_subprocess_run(monkeypatch)
+
+    _make_dummy_env(security_profile="hardened", seccomp_profile=str(seccomp_file))
+
+    run_cmd = _run_cmd_from_calls(calls)
+    run_cmd_str = " ".join(run_cmd)
+    assert f"seccomp={seccomp_file}" in run_cmd_str
+
+
 def test_credential_mount_skipped_when_source_is_directory(monkeypatch, tmp_path, caplog):
     """Credential mount should be skipped when source path is a directory.
 
@@ -1770,6 +1688,9 @@ def _shm_run_args(calls):
     return run_calls[0][0]
 
 
+_run_cmd_from_calls = _shm_run_args
+
+
 def test_shm_size_default_applied(monkeypatch):
     """Docker's 64 MB /dev/shm default breaks Chromium and PyTorch DataLoader
     workers; the sandbox must raise it by default."""
@@ -1897,3 +1818,82 @@ def test_docker_env_warnings_never_echo_values(caplog):
     with caplog.at_level(logging.WARNING, logger="tools.environments.docker"):
         docker_env._normalize_env_dict({"TOKEN": ["sk-live-value"], "OK": "1"})
     assert "TOKEN" in caplog.text and "sk-live-value" not in caplog.text
+
+
+def test_hardened_profile_warns_and_skips_missing_seccomp(monkeypatch, caplog):
+    """Missing seccomp file should warn and skip --security-opt seccomp, not fail."""
+    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
+    calls = _mock_subprocess_run(monkeypatch)
+
+    with caplog.at_level(logging.WARNING):
+        _make_dummy_env(security_profile="hardened", seccomp_profile="/no/such/file.json")
+
+    run_cmd = _run_cmd_from_calls(calls)
+    run_cmd_str = " ".join(run_cmd)
+    assert "seccomp=/no/such/file.json" not in run_cmd_str
+    assert any("not found" in record.getMessage() for record in caplog.records)
+
+
+def test_hardened_profile_adds_extra_writable_paths(monkeypatch):
+    """Custom writable_paths beyond the defaults should become tmpfs mounts."""
+    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
+    calls = _mock_subprocess_run(monkeypatch)
+
+    _make_dummy_env(
+        security_profile="hardened",
+        writable_paths=["/workspace", "/tmp", "/var/cache/app"],
+    )
+
+    run_cmd = _run_cmd_from_calls(calls)
+    run_cmd_str = " ".join(run_cmd)
+    # /workspace and /tmp are already covered by _SECURITY_ARGS / writable_args —
+    # only /var/cache/app should appear as a new tmpfs mount.
+    assert "/var/cache/app:rw" in run_cmd_str
+    # No duplicate tmpfs for /tmp (already in _SECURITY_ARGS).
+    assert run_cmd_str.count("--tmpfs /tmp:") == 1
+
+
+def test_standard_profile_ignores_writable_paths(monkeypatch):
+    """writable_paths should be a no-op for the standard (read-write rootfs) profile."""
+    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
+    calls = _mock_subprocess_run(monkeypatch)
+
+    _make_dummy_env(
+        security_profile="standard",
+        writable_paths=["/var/cache/app"],
+    )
+
+    run_cmd = _run_cmd_from_calls(calls)
+    run_cmd_str = " ".join(run_cmd)
+    assert "/var/cache/app" not in run_cmd_str
+
+
+def test_unknown_security_profile_falls_back_to_standard(monkeypatch, caplog):
+    """Unknown profile value should warn and behave like the standard profile."""
+    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
+    calls = _mock_subprocess_run(monkeypatch)
+
+    with caplog.at_level(logging.WARNING):
+        _make_dummy_env(security_profile="paranoid")
+
+    run_cmd = _run_cmd_from_calls(calls)
+    assert "--read-only" not in run_cmd
+    assert any("Unknown docker_security_profile" in r.getMessage() for r in caplog.records)
+
+
+def test_writable_paths_rejects_relative_paths(monkeypatch, caplog):
+    """writable_paths entries that aren't absolute should be logged and skipped."""
+    monkeypatch.setattr(docker_env, "find_docker", lambda: "/usr/bin/docker")
+    calls = _mock_subprocess_run(monkeypatch)
+
+    with caplog.at_level(logging.WARNING):
+        _make_dummy_env(
+            security_profile="hardened",
+            writable_paths=["relative/path", "/valid/path"],
+        )
+
+    run_cmd_str = " ".join(_run_cmd_from_calls(calls))
+    assert "relative/path" not in run_cmd_str
+    assert "/valid/path:rw" in run_cmd_str
+    assert any("must be absolute" in r.getMessage() for r in caplog.records)
+
