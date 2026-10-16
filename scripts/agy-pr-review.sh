@@ -53,14 +53,23 @@ gh auth status >/dev/null 2>&1 || { echo "error: gh is not authenticated (run: g
 
 # Fork checkouts have several remotes; pin the repo so every gh call the agent makes agrees.
 if [[ -z "${GH_REPO:-}" ]]; then
-  GH_REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || gh repo set-default --view 2>/dev/null)" || true
+  GH_REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null \
+    || gh repo set-default --view 2>/dev/null \
+    || git remote get-url origin 2>/dev/null | sed -E 's#^.*github\.com[:/]([^/]+/[^/.]+)(\.git)?$#\1#' \
+    || true)"
   [[ -n "$GH_REPO" ]] && export GH_REPO
+fi
+
+if [[ -z "${GH_REPO:-}" ]]; then
+  echo "error: unable to determine target repository. Set GH_REPO or run 'gh repo set-default'." >&2
+  exit 1
 fi
 
 if [[ -z "$PR" ]]; then
   PR="$(gh pr view ${GH_REPO:+-R "$GH_REPO"} --json number -q .number 2>/dev/null)" || {
     echo "error: no PR number given and no open PR for the current branch" >&2; exit 1; }
 fi
+PR="${PR#\#}"
 [[ "$PR" =~ ^[0-9]+$ ]] || { echo "error: invalid PR number: $PR" >&2; exit 2; }
 
 if [[ $LOCAL_ONLY -eq 1 ]]; then
@@ -81,6 +90,7 @@ REPO_URL="$(gh repo view ${GH_REPO:+"$GH_REPO"} --json url -q .url)"
 git -C "$TOP" fetch -q "$REPO_URL" "pull/$PR/head"
 git -C "$TOP" worktree add -q --detach "$WT" FETCH_HEAD
 [[ -d "$TOP/.venv" ]] && ln -s "$TOP/.venv" "$WT/.venv"
+[[ -d "$TOP/venv" ]] && ln -s "$TOP/venv" "$WT/venv"
 
 TEST_FILES=()
 while IFS= read -r f; do [[ -f "$WT/$f" ]] && TEST_FILES+=("$f"); done \
@@ -104,8 +114,14 @@ fi
 PROMPT="Use the pr-review skill to review PR #$PR. The working directory is a checkout of the PR head; do not run git checkout. The harness already ran the tests, so do NOT run tests yourself. $TEST_SUMMARY
 
 Finish with the complete review as your final message. $MODE"
+set +e
 (cd "$WT" && agy --model "$MODEL" ${EXTRA_AGY_FLAGS[@]+"${EXTRA_AGY_FLAGS[@]}"} -p "$PROMPT" 2>&1) | tee "$OUT"
+AGY_EXIT=${PIPESTATUS[0]}
+set -e
 if grep -q "^jetski: no output produced" "$OUT"; then
-  echo "error: agy was blocked by a permission prompt; add an allow-rule to permissions.allow in settings.json" >&2
+  echo "error: agy was blocked by a permission prompt; add an allow-rule to permissions.allow in settings.json or pass AGY_DANGEROUSLY_SKIP_PERMISSIONS=1" >&2
   exit 1
+fi
+if [[ $AGY_EXIT -ne 0 ]]; then
+  exit "$AGY_EXIT"
 fi
