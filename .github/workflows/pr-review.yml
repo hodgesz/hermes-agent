@@ -66,7 +66,10 @@ jobs:
 
       - name: Install Antigravity CLI
         run: |
+          set -euo pipefail
+          INSTALLER_SHA256="62966c07365423bd4dc209355060744058fb30d60f5323e2d360e39de64e5042"
           curl -sSfL --retry 3 --retry-delay 5 https://antigravity.google/cli/install.sh -o /tmp/install-agy.sh
+          echo "${INSTALLER_SHA256}  /tmp/install-agy.sh" | sha256sum -c -
           bash /tmp/install-agy.sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
           rm -f /tmp/install-agy.sh
@@ -83,4 +86,4 @@ jobs:
           if [[ "$LOCAL_ONLY" == "true" ]]; then
             FLAGS+=("--local-only")
           fi
-          ./scripts/agy-pr-review.sh "${FLAGS[@]}" "$PR_NUM"
+          ./scripts/agy-pr-review.sh ${FLAGS[@]+"${FLAGS[@]}"} "$PR_NUM"

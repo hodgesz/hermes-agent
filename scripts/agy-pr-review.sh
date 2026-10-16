@@ -75,7 +75,7 @@ PR="${PR#\#}"
 if [[ $LOCAL_ONLY -eq 1 ]]; then
   MODE="Local-only mode: print the full review to stdout. Do NOT post anything to GitHub."
 else
-  MODE="Post the review with 'gh pr review $PR ${GH_REPO:+-R "$GH_REPO"} --comment -b <body>'. Never approve or merge."
+  MODE="Post the review with 'gh pr review $PR ${GH_REPO:+-R "$GH_REPO"} --comment -F <review_file>'. Never approve or merge."
 fi
 
 # Review in a throwaway worktree of the PR head so the caller's checkout is never touched.
@@ -84,15 +84,19 @@ TOP="$(git rev-parse --show-toplevel)"
 WT="$(mktemp -d)"
 OUT="$(mktemp)"; TESTLOG="$(mktemp)"
 cleanup() { git -C "$TOP" worktree remove --force "$WT" >/dev/null 2>&1 || true; git -C "$TOP" worktree prune >/dev/null 2>&1 || true; rm -rf "$WT" "$OUT" "$TESTLOG"; }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 REPO_URL="$(gh repo view ${GH_REPO:+"$GH_REPO"} --json url -q .url)"
 git -C "$TOP" fetch -q "$REPO_URL" "pull/$PR/head"
 git -C "$TOP" worktree add -q --detach "$WT" FETCH_HEAD
 [[ -d "$TOP/.venv" ]] && ln -s "$TOP/.venv" "$WT/.venv"
 [[ -d "$TOP/venv" ]] && ln -s "$TOP/venv" "$WT/venv"
-if [[ -d "$TOP/.agents/skills/pr-review" && ! -d "$WT/.agents/skills/pr-review" ]]; then
+# Always enforce the trusted pr-review skill from the base repo so PR branches cannot tamper with it.
+if [[ -d "$TOP/.agents/skills/pr-review" ]]; then
   mkdir -p "$WT/.agents/skills"
+  rm -rf "$WT/.agents/skills/pr-review"
   ln -s "$TOP/.agents/skills/pr-review" "$WT/.agents/skills/pr-review"
 fi
 
@@ -105,6 +109,7 @@ if [[ ${#TEST_FILES[@]} -gt 0 ]]; then
   if [[ ! -x "$RUN_TESTS" && -x "$TOP/scripts/run_tests.sh" ]]; then
     mkdir -p "$WT/scripts"
     cp "$TOP/scripts/run_tests.sh" "$TOP/scripts/run_tests_parallel.py" "$WT/scripts/"
+    chmod +x "$RUN_TESTS"
   fi
   if [[ -x "$RUN_TESTS" ]]; then
     echo "Running ${#TEST_FILES[@]} changed test file(s)..." >&2
@@ -115,8 +120,10 @@ $(tail -n 40 "$TESTLOG")"
   else
     TEST_SUMMARY="Harness detected changed test files (${TEST_FILES[*]}), but scripts/run_tests.sh was not found or not executable."
   fi
+  TEST_PROMPT="The harness already ran the tests, so do NOT run tests yourself. $TEST_SUMMARY"
 else
   TEST_SUMMARY="Harness found no changed test files to run."
+  TEST_PROMPT="$TEST_SUMMARY Verify behavior by running relevant local tests for modified modules if appropriate."
 fi
 
 EXTRA_AGY_FLAGS=()
@@ -124,7 +131,7 @@ if [[ -n "${CI:-}" || "${AGY_DANGEROUSLY_SKIP_PERMISSIONS:-0}" == "1" ]]; then
   EXTRA_AGY_FLAGS+=("--dangerously-skip-permissions")
 fi
 
-PROMPT="Use the pr-review skill to review PR #$PR. The working directory is a checkout of the PR head; do not run git checkout. The harness already ran the tests, so do NOT run tests yourself. $TEST_SUMMARY
+PROMPT="Use the pr-review skill to review PR #$PR. The working directory is a checkout of the PR head; do not run git checkout. $TEST_PROMPT
 
 Finish with the complete review as your final message. $MODE"
 set +e
