@@ -109,7 +109,7 @@ git -C "$TOP" worktree add -q --detach "$WT" FETCH_HEAD
 [[ -d "$TOP/.venv" ]] && ln -sfn "$TOP/.venv" "$WT/.venv"
 [[ -d "$TOP/venv" ]] && ln -sfn "$TOP/venv" "$WT/venv"
 # Always enforce the trusted pr-review skill from the base repo so PR branches cannot tamper with it.
-BASE_REF="${GITHUB_BASE_REF:-main}"
+BASE_REF="${GITHUB_BASE_REF:-$(gh pr view "$PR" ${GH_REPO:+-R "$GH_REPO"} --json baseRefName -q .baseRefName 2>/dev/null || echo main)}"
 rm -rf "$WT/.agent/skills/pr-review" "$WT/skills/pr-review" "$WT/.agents/skills/pr-review"
 if git -C "$TOP" cat-file -e "origin/${BASE_REF}:.agents/skills/pr-review/SKILL.md" 2>/dev/null; then
   mkdir -p "$WT/.agents/skills"
@@ -160,10 +160,9 @@ set +e
 (cd "$WT" && agy --model "$MODEL" ${EXTRA_AGY_FLAGS[@]+"${EXTRA_AGY_FLAGS[@]}"} -p "$PROMPT" 2>&1) | tee "$OUT"
 AGY_EXIT=${PIPESTATUS[0]}
 set -e
-if grep -q "jetski: no output produced" "$OUT"; then
-  echo "error: agy was blocked by a permission prompt; add an allow-rule to permissions.allow in settings.json or pass AGY_DANGEROUSLY_SKIP_PERMISSIONS=1" >&2
-  exit 1
-fi
 if [[ $AGY_EXIT -ne 0 ]]; then
+  if grep -q "jetski: no output produced" "$OUT"; then
+    echo "error: agy was blocked by a permission prompt; add an allow-rule to permissions.allow in settings.json or pass AGY_DANGEROUSLY_SKIP_PERMISSIONS=1" >&2
+  fi
   exit "$AGY_EXIT"
 fi
