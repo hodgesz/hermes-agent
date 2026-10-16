@@ -60,11 +60,13 @@ jobs:
         run: uv python install 3.11
 
       - name: Set up virtualenv
-        run: uv sync --locked --python 3.11 --extra dev
+        uses: ./.github/actions/retry
+        with:
+          command: uv sync --locked --python 3.11 --extra dev
 
       - name: Install Antigravity CLI
         run: |
-          curl -fsSL https://antigravity.google/cli/install.sh -o /tmp/install-agy.sh
+          curl -sSfL --retry 3 --retry-delay 5 https://antigravity.google/cli/install.sh -o /tmp/install-agy.sh
           bash /tmp/install-agy.sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
           rm -f /tmp/install-agy.sh

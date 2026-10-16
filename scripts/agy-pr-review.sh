@@ -91,17 +91,25 @@ git -C "$TOP" fetch -q "$REPO_URL" "pull/$PR/head"
 git -C "$TOP" worktree add -q --detach "$WT" FETCH_HEAD
 [[ -d "$TOP/.venv" ]] && ln -s "$TOP/.venv" "$WT/.venv"
 [[ -d "$TOP/venv" ]] && ln -s "$TOP/venv" "$WT/venv"
+if [[ -d "$TOP/.agents/skills/pr-review" && ! -d "$WT/.agents/skills/pr-review" ]]; then
+  mkdir -p "$WT/.agents/skills"
+  ln -s "$TOP/.agents/skills/pr-review" "$WT/.agents/skills/pr-review"
+fi
 
 TEST_FILES=()
 while IFS= read -r f; do [[ -f "$WT/$f" ]] && TEST_FILES+=("$f"); done \
   < <(gh pr diff "$PR" ${GH_REPO:+-R "$GH_REPO"} --name-only | grep -E '^tests/.*\.py$' || true)
 
-if [[ ${#TEST_FILES[@]} -gt 0 && -x "$WT/scripts/run_tests.sh" ]]; then
-  echo "Running ${#TEST_FILES[@]} changed test file(s)..." >&2
-  (cd "$WT" && PYTHONPATH="$WT${PYTHONPATH:+:$PYTHONPATH}" perl -e 'alarm 600; exec @ARGV' scripts/run_tests.sh "${TEST_FILES[@]}") >"$TESTLOG" 2>&1 \
-    && TEST_STATUS="PASSED" || TEST_STATUS="FAILED or timed out"
-  TEST_SUMMARY="Test run harness result for ${TEST_FILES[*]}: $TEST_STATUS. Last lines:
+if [[ ${#TEST_FILES[@]} -gt 0 ]]; then
+  if [[ -x "$TOP/scripts/run_tests.sh" ]]; then
+    echo "Running ${#TEST_FILES[@]} changed test file(s)..." >&2
+    (cd "$WT" && PYTHONPATH="$WT${PYTHONPATH:+:$PYTHONPATH}" env -u GEMINI_API_KEY -u GITHUB_TOKEN -u GH_TOKEN perl -e 'alarm 600; exec @ARGV' "$TOP/scripts/run_tests.sh" "${TEST_FILES[@]}") >"$TESTLOG" 2>&1 \
+      && TEST_STATUS="PASSED" || TEST_STATUS="FAILED or timed out"
+    TEST_SUMMARY="Test run harness result for ${TEST_FILES[*]}: $TEST_STATUS. Last lines:
 $(tail -n 40 "$TESTLOG")"
+  else
+    TEST_SUMMARY="Harness detected changed test files (${TEST_FILES[*]}), but scripts/run_tests.sh was not found or not executable."
+  fi
 else
   TEST_SUMMARY="Harness found no changed test files to run."
 fi
@@ -118,7 +126,7 @@ set +e
 (cd "$WT" && agy --model "$MODEL" ${EXTRA_AGY_FLAGS[@]+"${EXTRA_AGY_FLAGS[@]}"} -p "$PROMPT" 2>&1) | tee "$OUT"
 AGY_EXIT=${PIPESTATUS[0]}
 set -e
-if grep -q "^jetski: no output produced" "$OUT"; then
+if grep -q "jetski: no output produced" "$OUT"; then
   echo "error: agy was blocked by a permission prompt; add an allow-rule to permissions.allow in settings.json or pass AGY_DANGEROUSLY_SKIP_PERMISSIONS=1" >&2
   exit 1
 fi
