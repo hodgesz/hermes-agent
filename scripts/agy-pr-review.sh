@@ -77,7 +77,7 @@ OUT="$(mktemp)"; TESTLOG="$(mktemp)"
 cleanup() { git -C "$TOP" worktree remove --force "$WT" >/dev/null 2>&1 || true; rm -rf "$WT" "$OUT" "$TESTLOG"; }
 trap cleanup EXIT
 
-REPO_URL="$(gh repo view ${GH_REPO:+-R "$GH_REPO"} --json url -q .url)"
+REPO_URL="$(gh repo view ${GH_REPO:+"$GH_REPO"} --json url -q .url)"
 git -C "$TOP" fetch -q "$REPO_URL" "pull/$PR/head"
 git -C "$TOP" worktree add -q --detach "$WT" FETCH_HEAD
 [[ -d "$TOP/.venv" ]] && ln -s "$TOP/.venv" "$WT/.venv"
