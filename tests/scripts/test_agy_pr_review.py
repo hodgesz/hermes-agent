@@ -26,7 +26,7 @@ def test_agy_pr_review_invalid_option():
 def test_agy_pr_review_missing_model_arg():
     """Verify that --model without an argument exits with code 2."""
     res = subprocess.run([str(SCRIPT), "--model"], capture_output=True, text=True)
-    assert res.returncode != 0
+    assert res.returncode == 2
 
 
 def test_agy_pr_review_invalid_pr_number():

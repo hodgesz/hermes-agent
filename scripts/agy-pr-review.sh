@@ -24,7 +24,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help) usage; exit 0 ;;
     --local-only) LOCAL_ONLY=1 ;;
-    --model) MODEL="${2:?--model requires a value}"; shift ;;
+    --model) [[ $# -ge 2 ]] || { echo "error: --model requires a value" >&2; exit 2; }; MODEL="$2"; shift ;;
     -*) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
     *) PR="$1" ;;
   esac
@@ -50,7 +50,7 @@ if [[ -n "${CI:-}" && -z "${GEMINI_API_KEY:-}" ]]; then
   exit 0
 fi
 
-for bin in gh agy; do
+for bin in gh agy perl; do
   command -v "$bin" >/dev/null || { echo "error: $bin not found in PATH" >&2; exit 1; }
 done
 
@@ -99,13 +99,13 @@ trap 'exit 143' TERM
 REPO_URL="$(gh repo view ${GH_REPO:+"$GH_REPO"} --json url -q .url)"
 git -C "$TOP" fetch -q "$REPO_URL" "pull/$PR/head"
 git -C "$TOP" worktree add -q --detach "$WT" FETCH_HEAD
-[[ -d "$TOP/.venv" ]] && ln -s "$TOP/.venv" "$WT/.venv"
-[[ -d "$TOP/venv" ]] && ln -s "$TOP/venv" "$WT/venv"
+[[ -d "$TOP/.venv" ]] && ln -sfn "$TOP/.venv" "$WT/.venv"
+[[ -d "$TOP/venv" ]] && ln -sfn "$TOP/venv" "$WT/venv"
 # Always enforce the trusted pr-review skill from the base repo so PR branches cannot tamper with it.
 if [[ -d "$TOP/.agents/skills/pr-review" ]]; then
   mkdir -p "$WT/.agents/skills"
   rm -rf "$WT/.agents/skills/pr-review"
-  ln -s "$TOP/.agents/skills/pr-review" "$WT/.agents/skills/pr-review"
+  ln -sfn "$TOP/.agents/skills/pr-review" "$WT/.agents/skills/pr-review"
 fi
 
 TEST_FILES=()
